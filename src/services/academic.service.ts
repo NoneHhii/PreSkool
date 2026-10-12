@@ -20,6 +20,9 @@ export interface HomeroomClass {
   major?: Major;
   advisor?: any;
   students?: Student[];
+  _count?: {
+    students: number;
+  };
 }
 export interface Faculty {
   id: string;
@@ -65,6 +68,7 @@ export interface Schedule {
   shift: string;
   room: string;
   classInfo?: Class;
+  class?: Class;
 }
 
 export interface AttendanceStats {
@@ -157,6 +161,10 @@ export const academicService = {
     const response = await api.post<{ message: string; data: any }>('/v1/academic/homerooms/auto-assign', data);
     return response.data;
   },
+  autoAssignAllFreshmen: async (data?: { cohort?: string }) => {
+    const response = await api.post<{ message: string; data: any }>('/v1/academic/homerooms/auto-assign-all', data || {});
+    return response.data;
+  },
 
   // Lookups
   getUnassignedHomeroomStudents: async (params?: { cohort?: string; majorId?: string }) => {
@@ -171,8 +179,8 @@ export const academicService = {
     const response = await api.get<{ data: any[] }>('/v1/academic/teachers');
     return response.data;
   },
-  getStudents: async () => {
-    const response = await api.get<{ data: Student[] }>('/v1/academic/students');
+  getStudents: async (params?: { homeroomClassId?: string }) => {
+    const response = await api.get<{ data: Student[] }>('/v1/academic/students', { params });
     return response.data;
   },
 

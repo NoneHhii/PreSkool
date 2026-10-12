@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { academicService, type Class, type Course, type HomeroomClass } from '../../../services/academic.service';
-import { Plus, Users, AlertCircle, CheckCircle, UserPlus, Zap } from 'lucide-react';
+import { academicService, type Class, type Course, type HomeroomClass, type Major } from '../../../services/academic.service';
+import { Plus, Users, AlertCircle, CheckCircle, UserPlus, Zap, GraduationCap } from 'lucide-react';
 
 export default function ClassesTab() {
   const [classes, setClasses] = useState<Class[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [homerooms, setHomerooms] = useState<HomeroomClass[]>([]);
+  const [majors, setMajors] = useState<Major[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   
@@ -38,14 +39,16 @@ export default function ClassesTab() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [classesRes, coursesRes, homeroomsRes] = await Promise.all([
+      const [classesRes, coursesRes, homeroomsRes, majorsRes] = await Promise.all([
         academicService.getClasses(),
         academicService.getCourses(),
-        academicService.getHomerooms()
+        academicService.getHomerooms(),
+        academicService.getMajors()
       ]);
-      setClasses(classesRes.data || []);
-      setCourses(coursesRes.data || []);
-      setHomerooms(homeroomsRes.data || []);
+      setClasses(Array.isArray(classesRes?.data) ? classesRes.data : Array.isArray(classesRes) ? classesRes : []);
+      setCourses(Array.isArray(coursesRes?.data) ? coursesRes.data : Array.isArray(coursesRes) ? coursesRes : []);
+      setHomerooms(Array.isArray(homeroomsRes?.data) ? homeroomsRes.data : Array.isArray(homeroomsRes) ? homeroomsRes : []);
+      setMajors(Array.isArray(majorsRes?.data) ? majorsRes.data : Array.isArray(majorsRes) ? majorsRes : []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -141,14 +144,34 @@ export default function ClassesTab() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 relative">
+      {/* Information Banner */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+        <div className="p-2 bg-blue-100 text-blue-700 rounded-lg shrink-0 mt-0.5">
+          <GraduationCap size={20} />
+        </div>
+        <div className="text-sm">
+          <p className="font-semibold text-blue-900">Phân biệt 2 loại Lớp trong hệ thống Đại học:</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-1.5 text-xs text-blue-800">
+            <div className="bg-white/80 p-2.5 rounded-lg border border-blue-100">
+              <strong className="text-blue-950 font-bold block mb-0.5">1. Lớp học phần (Course Classes - tại màn hình này):</strong>
+              Mở lớp cho từng <em>Môn học</em> theo học kỳ (vd: CS101-01, MATH101-02) để xếp TKB, giảng viên dạy và điểm danh tín chỉ.
+            </div>
+            <div className="bg-white/80 p-2.5 rounded-lg border border-blue-100">
+              <strong className="text-blue-950 font-bold block mb-0.5">2. Lớp sinh hoạt / Lớp niên chế (Homerooms):</strong>
+              Dành cho việc chia lớp hành chính cho <em>Tân Sinh Viên vừa nhập học</em> theo Khóa & Ngành (truy cập menu <strong>Homerooms (Lớp sinh hoạt)</strong> ở thanh bên trái).
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="flex justify-between items-center bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center">
             <Users className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Course Classes</h2>
-            <p className="text-sm text-gray-500">Manage course classes and enrollments</p>
+            <h2 className="text-xl font-bold text-gray-900">Course Classes (Lớp học phần)</h2>
+            <p className="text-sm text-gray-500">Quản lý các lớp học phần theo môn học và việc đăng ký học viên</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -183,8 +206,8 @@ export default function ClassesTab() {
           <div className="flex items-start gap-3 mb-6">
             <div className="p-2 bg-purple-100 rounded-lg text-purple-700"><Zap size={20} /></div>
             <div>
-              <h3 className="text-lg font-bold text-purple-900">Auto Assign Students to Classes</h3>
-              <p className="text-sm text-purple-700">Filter unassigned students and automatically split them into multiple classes.</p>
+              <h3 className="text-lg font-bold text-purple-900">Tự động phân bổ sinh viên vào Lớp học phần</h3>
+              <p className="text-sm text-purple-700">Lọc những học sinh chưa có lớp môn học này và tự động chia đều họ vào các lớp học phần.</p>
             </div>
           </div>
           
@@ -192,22 +215,33 @@ export default function ClassesTab() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Step 1: Target Course */}
               <div className="space-y-4 bg-white p-4 rounded-lg border border-purple-100 shadow-sm">
-                <h4 className="font-semibold text-gray-900 border-b pb-2">1. Target Course</h4>
+                <h4 className="font-semibold text-gray-900 border-b pb-2">1. Môn học mục tiêu (Course)</h4>
                 <div className="space-y-3">
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase">Course</label>
-                    <select required value={autoAssignData.courseId} onChange={e => setAutoAssignData({...autoAssignData, courseId: e.target.value})} className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-200 outline-none bg-white text-sm">
-                      <option value="" disabled>Select a Course</option>
-                      {courses.map(c => <option key={c.id} value={c.id}>{c.code} - {c.name}</option>)}
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs font-semibold text-gray-500 uppercase">Môn học (Course)</label>
+                      <span className="text-[11px] text-purple-600 font-medium">{courses.length} môn khả dụng</span>
+                    </div>
+                    <select 
+                      required 
+                      value={autoAssignData.courseId} 
+                      onChange={e => setAutoAssignData({...autoAssignData, courseId: e.target.value})} 
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-200 outline-none bg-white text-sm"
+                    >
+                      <option value="" disabled>-- Chọn một môn học --</option>
+                      {courses.map(c => <option key={c.id} value={c.id}>{c.code} - {c.name} ({c.credits} TC)</option>)}
                     </select>
+                    {courses.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1">⚠️ Chưa có môn học nào trong hệ thống.</p>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase">Year</label>
+                      <label className="text-xs font-semibold text-gray-500 uppercase">Năm học</label>
                       <input required value={autoAssignData.academicYear} onChange={e => setAutoAssignData({...autoAssignData, academicYear: e.target.value})} type="text" className="w-full px-3 py-2 border rounded-lg outline-none text-sm" />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase">Sem</label>
+                      <label className="text-xs font-semibold text-gray-500 uppercase">Học kỳ</label>
                       <input required value={autoAssignData.semester} onChange={e => setAutoAssignData({...autoAssignData, semester: Number(e.target.value)})} type="number" min={1} max={3} className="w-full px-3 py-2 border rounded-lg outline-none text-sm" />
                     </div>
                   </div>
@@ -216,25 +250,38 @@ export default function ClassesTab() {
 
               {/* Step 2: Filter Students */}
               <div className="space-y-4 bg-white p-4 rounded-lg border border-purple-100 shadow-sm">
-                <h4 className="font-semibold text-gray-900 border-b pb-2">2. Filter Students</h4>
+                <h4 className="font-semibold text-gray-900 border-b pb-2">2. Lọc học sinh (Filter)</h4>
                 <div className="space-y-3">
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase">Cohort (Optional)</label>
-                    <input value={filterCohort} onChange={e => setFilterCohort(e.target.value)} type="text" placeholder="e.g. K26" className="w-full px-3 py-2 border rounded-lg outline-none text-sm" />
+                    <label className="text-xs font-semibold text-gray-500 uppercase">Khóa / Cohort (Tùy chọn)</label>
+                    <input 
+                      value={filterCohort} 
+                      onChange={e => setFilterCohort(e.target.value)} 
+                      type="text" 
+                      placeholder="ví dụ: 1 hoặc K1, 2026..." 
+                      className="w-full px-3 py-2 border rounded-lg outline-none text-sm" 
+                    />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase">Major (Optional)</label>
-                    <select value={filterMajorId} onChange={e => setFilterMajorId(e.target.value)} className="w-full px-3 py-2 border rounded-lg outline-none bg-white text-sm">
-                      <option value="">Any Major</option>
-                      {/* You can load majors here if needed, or use a unique set from homerooms */}
-                      {Array.from(new Set(homerooms.map(h => h.major?.id))).map(id => {
-                        const m = homerooms.find(h => h.major?.id === id)?.major;
-                        return m ? <option key={m.id} value={m.id}>{m.name}</option> : null;
-                      })}
+                    <label className="text-xs font-semibold text-gray-500 uppercase">Chuyên ngành (Tùy chọn)</label>
+                    <select 
+                      value={filterMajorId} 
+                      onChange={e => setFilterMajorId(e.target.value)} 
+                      className="w-full px-3 py-2 border rounded-lg outline-none bg-white text-sm"
+                    >
+                      <option value="">Tất cả chuyên ngành ({majors.length})</option>
+                      {majors.map(m => (
+                        <option key={m.id} value={m.id}>{m.code} - {m.name}</option>
+                      ))}
                     </select>
                   </div>
-                  <button type="button" onClick={checkUnassigned} disabled={!autoAssignData.courseId} className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-semibold rounded-lg transition disabled:opacity-50">
-                    Find Eligible Students
+                  <button 
+                    type="button" 
+                    onClick={checkUnassigned} 
+                    disabled={!autoAssignData.courseId} 
+                    className="w-full py-2 bg-purple-100 hover:bg-purple-200 text-purple-900 text-sm font-semibold rounded-lg transition disabled:opacity-50 disabled:bg-gray-100 disabled:text-gray-400"
+                  >
+                    {!autoAssignData.courseId ? 'Vui lòng chọn môn học ở Bước 1' : 'Tìm sinh viên đủ điều kiện'}
                   </button>
                 </div>
               </div>

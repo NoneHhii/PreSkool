@@ -149,11 +149,11 @@ export default function ScheduleTab() {
             <div key={schedule.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition">
               <div className="bg-blue-50/50 p-4 border-b border-gray-100 flex justify-between items-start">
                 <div>
-                  <h4 className="font-bold text-blue-900 text-lg">{schedule.classInfo?.code || 'Unknown Class'}</h4>
-                  <p className="text-xs text-blue-700 font-medium">{schedule.classInfo?.course?.name || 'Unknown Course'}</p>
+                  <h4 className="font-bold text-blue-900 text-lg">{(schedule.class || schedule.classInfo)?.code || 'Lớp học'}</h4>
+                  <p className="text-xs text-blue-700 font-medium">{(schedule.class || schedule.classInfo)?.course?.name || 'Môn học'}</p>
                 </div>
                 <div className="bg-white px-2 py-1 rounded text-xs font-bold text-gray-600 shadow-sm border border-gray-100">
-                  {schedule.classInfo?.semester ? `Sem ${schedule.classInfo.semester}` : ''}
+                  {(schedule.class || schedule.classInfo)?.semester ? `Học kỳ ${(schedule.class || schedule.classInfo)?.semester}` : ''}
                 </div>
               </div>
               <div className="p-5 space-y-4">

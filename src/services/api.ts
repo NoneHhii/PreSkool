@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'https://pre-skool-be.vercel.app/api', // Default to 8000, adjust as needed
+  baseURL: 'http://localhost:5000/api',
+  // baseURL: 'https://pre-skool-be.vercel.app/api', // Default to 8000, adjust as needed
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
