@@ -19,7 +19,7 @@ export interface HomeroomClass {
   advisorId?: string;
   major?: Major;
   advisor?: any;
-  students?: Student[];
+  students?: any[];
   _count?: {
     students: number;
   };
@@ -191,6 +191,17 @@ export const academicService = {
   },
   createSchedule: async (data: { classId: string; date: string; shift: string; room: string }) => {
     const response = await api.post<{ message: string; data: Schedule }>('/v1/academic/schedule', data);
+    return response.data;
+  },
+  bulkCreateSchedule: async (data: {
+    classId: string;
+    startDate: string;
+    endDate: string;
+    daysOfWeek: number[];
+    shift: string;
+    room: string;
+  }) => {
+    const response = await api.post<{ message: string; count?: number }>('/v1/academic/schedule/bulk', data);
     return response.data;
   },
 
