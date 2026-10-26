@@ -16,14 +16,22 @@ import TeacherOverview from './components/TeacherOverview';
 import FacultiesTab from './components/FacultiesTab';
 import MajorsTab from './components/MajorsTab';
 import HomeroomsTab from './components/HomeroomsTab';
+import CurriculumsTab from './components/CurriculumsTab';
 import CoursesTab from './components/CoursesTab';
 import ClassesTab from './components/ClassesTab';
 import ScheduleTab from './components/ScheduleTab';
 import AttendanceTab from './components/AttendanceTab';
+import StudentDirectoryTab from './components/StudentDirectoryTab';
+import RegistrationTab from './components/RegistrationTab';
+import ExaminationTab from './components/ExaminationTab';
+import TuitionTab from './components/TuitionTab';
+import AdvisorTab from './components/AdvisorTab';
+import StudentAffairsTab from './components/StudentAffairsTab';
+import LmsTab from './components/LmsTab';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryTab = searchParams.get('tab');
   const [activeTab, setActiveTab] = useState(queryTab || 'overview');
   const [user, setUser] = useState<any>(null);
@@ -37,18 +45,29 @@ export default function Dashboard() {
 
   useEffect(() => {
     const userStr = localStorage.getItem('user');
-    if (!userStr || !localStorage.getItem('token')) {
-      navigate('/');
+    const token = localStorage.getItem('token');
+    if (!userStr || !token) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      navigate('/', { replace: true });
       return;
     }
     try {
       const parsedUser = JSON.parse(userStr);
       setUser(parsedUser);
-      if (!queryTab && parsedUser.role === 'TEACHER') {
-        setActiveTab('teacher-overview');
+      if (!queryTab) {
+        if (parsedUser.role === 'TEACHER') {
+          setActiveTab('teacher-overview');
+        } else if (parsedUser.role === 'STUDENT') {
+          setActiveTab('schedule');
+        } else {
+          setActiveTab('overview');
+        }
       }
     } catch {
-      navigate('/');
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      navigate('/', { replace: true });
     }
   }, [navigate, queryTab]);
 
@@ -57,6 +76,11 @@ export default function Dashboard() {
       setActiveTab(queryTab);
     }
   }, [queryTab]);
+
+  const handleSelectTab = (tabId: string) => {
+    setActiveTab(tabId);
+    setSearchParams({ tab: tabId }, { replace: true });
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -104,17 +128,19 @@ export default function Dashboard() {
   }
 
   const isAdmin = user.role === 'ADMIN';
+  const isTeacher = user.role === 'TEACHER';
+  const isStudent = user.role === 'STUDENT';
 
   return (
-    <DashboardLayout activeTab={activeTab} onSelectTab={setActiveTab}>
+    <DashboardLayout activeTab={activeTab} onSelectTab={handleSelectTab}>
       {/* 1. Admin Overview Dashboard */}
       {activeTab === 'overview' && (
-        <AdminOverview onNavigateTab={setActiveTab} user={user} />
+        <AdminOverview onNavigateTab={handleSelectTab} user={user} />
       )}
 
       {/* 2. Teacher Overview Dashboard */}
       {activeTab === 'teacher-overview' && (
-        <TeacherOverview onNavigateTab={setActiveTab} user={user} />
+        <TeacherOverview onNavigateTab={handleSelectTab} user={user} />
       )}
 
       {/* 3. Import Users Tab */}
@@ -352,14 +378,26 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 4. Academic Modules */}
+      {/* 4. Peoples & Student Directory */}
+      {activeTab === 'students' && (isAdmin || isTeacher) && <StudentDirectoryTab user={user} />}
+
+      {/* 5. Academic Modules */}
       {activeTab === 'faculties' && isAdmin && <FacultiesTab />}
       {activeTab === 'majors' && isAdmin && <MajorsTab />}
       {activeTab === 'homerooms' && isAdmin && <HomeroomsTab />}
+      {activeTab === 'curriculums' && isAdmin && <CurriculumsTab />}
       {activeTab === 'courses' && isAdmin && <CoursesTab />}
-      {activeTab === 'classes' && isAdmin && <ClassesTab />}
+      {activeTab === 'classes' && (isAdmin || isTeacher) && <ClassesTab />}
       {activeTab === 'schedule' && <ScheduleTab />}
-      {activeTab === 'attendance' && <AttendanceTab />}
+      {activeTab === 'attendance' && (isAdmin || isTeacher) && <AttendanceTab />}
+
+      {/* 6. ERP Submodules */}
+      {activeTab === 'registration' && (isAdmin || isStudent) && <RegistrationTab user={user} />}
+      {activeTab === 'examination' && <ExaminationTab user={user} />}
+      {activeTab === 'finance' && (isAdmin || isStudent) && <TuitionTab user={user} />}
+      {activeTab === 'advisor' && (isAdmin || isTeacher) && <AdvisorTab user={user} />}
+      {activeTab === 'affairs' && <StudentAffairsTab user={user} />}
+      {activeTab === 'lms' && <LmsTab user={user} />}
     </DashboardLayout>
   );
 }

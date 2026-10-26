@@ -28,7 +28,7 @@ export const LoginForm: React.FC = () => {
         } else {
           alert('Login successful!');
         }
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       }
     } catch (err: any) {
       console.error('Login error:', err);

@@ -5,6 +5,11 @@ import {
   type StudentStatusUpdateData,
 } from '../../../services/student.service';
 import {
+  academicService,
+  type Major,
+  type HomeroomClass,
+} from '../../../services/academic.service';
+import {
   Search,
   Filter,
   User,
@@ -30,7 +35,9 @@ interface StudentItem {
   policyObject?: string;
   cohort: string;
   majorName: string;
+  majorId?: string;
   homeroomClassName: string;
+  homeroomClassId?: string;
   status: 'ACTIVE' | 'SUSPENDED' | 'DROPPED' | 'GRADUATED';
   gender: 'Male' | 'Female';
   statusLogs?: {
@@ -47,6 +54,8 @@ export default function StudentDirectoryTab({ user }: { user: any }) {
   const searchInputId = useId();
   const statusFilterId = useId();
   const cohortFilterId = useId();
+  const majorFilterId = useId();
+  const homeroomFilterId = useId();
   const identityCardInputId = useId();
   const birthPlaceInputId = useId();
   const emergencyNameInputId = useId();
@@ -78,6 +87,10 @@ export default function StudentDirectoryTab({ user }: { user: any }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [cohortFilter, setCohortFilter] = useState('');
+  const [majorFilter, setMajorFilter] = useState('');
+  const [homeroomFilter, setHomeroomFilter] = useState('');
+  const [majors, setMajors] = useState<Major[]>([]);
+  const [homerooms, setHomerooms] = useState<HomeroomClass[]>([]);
 
   // Selected student for detail modal
   const [selectedStudent, setSelectedStudent] = useState<StudentItem | null>(null);
@@ -99,8 +112,25 @@ export default function StudentDirectoryTab({ user }: { user: any }) {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
+    loadLookups();
+  }, []);
+
+  const loadLookups = async () => {
+    try {
+      const [mRes, hRes] = await Promise.all([
+        academicService.getMajors(),
+        academicService.getHomerooms(),
+      ]);
+      setMajors(mRes.data || []);
+      setHomerooms(hRes.data || []);
+    } catch (err) {
+      console.warn('Failed to load majors/homerooms for student filter:', err);
+    }
+  };
+
+  useEffect(() => {
     fetchStudents();
-  }, [statusFilter, cohortFilter]);
+  }, [statusFilter, cohortFilter, majorFilter, homeroomFilter]);
 
   const fetchStudents = async () => {
     setLoading(true);
@@ -109,6 +139,8 @@ export default function StudentDirectoryTab({ user }: { user: any }) {
         search: search.trim() || undefined,
         status: statusFilter || undefined,
         cohort: cohortFilter || undefined,
+        majorId: majorFilter || undefined,
+        homeroomClassId: homeroomFilter || undefined,
       });
 
       let rawList: any[] = [];
@@ -327,6 +359,36 @@ export default function StudentDirectoryTab({ user }: { user: any }) {
             <option value="K18">Khóa K18</option>
             <option value="K17">Khóa K17</option>
             <option value="K16">Khóa K16</option>
+          </select>
+
+          <label htmlFor={majorFilterId} className="sr-only">Lọc theo ngành</label>
+          <select
+            id={majorFilterId}
+            value={majorFilter}
+            onChange={(e) => setMajorFilter(e.target.value)}
+            className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Tất cả ngành</option>
+            {majors.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name} ({m.code})
+              </option>
+            ))}
+          </select>
+
+          <label htmlFor={homeroomFilterId} className="sr-only">Lọc theo lớp</label>
+          <select
+            id={homeroomFilterId}
+            value={homeroomFilter}
+            onChange={(e) => setHomeroomFilter(e.target.value)}
+            className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Tất cả lớp sinh hoạt</option>
+            {homerooms.map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.name}
+              </option>
+            ))}
           </select>
         </div>
       </div>

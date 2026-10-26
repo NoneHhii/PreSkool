@@ -40,7 +40,9 @@ export default function Profile() {
       }
     } catch (error: any) {
       if (error.response?.status === 401) {
-        navigate('/');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        navigate('/', { replace: true });
       }
       setMessage({ type: 'error', text: 'Không thể tải thông tin hồ sơ.' });
     }

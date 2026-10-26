@@ -213,5 +213,45 @@ export const academicService = {
   getStudentAttendanceStats: async (studentId: string): Promise<AttendanceResponse> => {
     const response = await api.get<AttendanceResponse>(`/v1/academic/attendance/student/${studentId}`);
     return response.data;
+  },
+
+  // Curriculums
+  getCurriculums: async (params?: { majorId?: string }) => {
+    try {
+      const response = await api.get<{ data: Curriculum[] }>('/v1/academic/curriculums', { params });
+      return response.data;
+    } catch {
+      return { data: [] };
+    }
+  },
+  createCurriculum: async (data: { name: string; majorId: string; totalCredits?: number }) => {
+    const response = await api.post<{ message: string; data: Curriculum }>('/v1/academic/curriculums', data);
+    return response.data;
+  },
+  addCourseToCurriculum: async (curriculumId: string, data: { courseId: string; semesterNumber: number; isCompulsory?: boolean }) => {
+    const response = await api.post<{ message: string; data: any }>(`/v1/academic/curriculums/${curriculumId}/courses`, data);
+    return response.data;
+  },
+  removeCourseFromCurriculum: async (curriculumId: string, courseId: string) => {
+    const response = await api.delete<{ message: string }>(`/v1/academic/curriculums/${curriculumId}/courses/${courseId}`);
+    return response.data;
   }
 };
+
+export interface CurriculumCourseItem {
+  id?: string;
+  courseId: string;
+  course?: Course;
+  semesterNumber: number;
+  isCompulsory?: boolean;
+}
+
+export interface Curriculum {
+  id: string;
+  name: string;
+  majorId: string;
+  major?: Major;
+  totalCredits?: number;
+  courses?: CurriculumCourseItem[];
+}
+

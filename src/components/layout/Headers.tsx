@@ -65,7 +65,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/');
+    navigate('/', { replace: true });
   };
 
   const toggleFullscreen = () => {

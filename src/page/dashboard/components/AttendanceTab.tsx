@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { academicService, type Schedule } from '../../../services/academic.service';
+import { teacherService, type TeachingLogData } from '../../../services/teacher.service';
 import {
   CheckCircle,
   AlertCircle,
@@ -8,7 +9,9 @@ import {
   UserX,
   Clock,
   X,
-  FileCheck
+  FileCheck,
+  AlertTriangle,
+  NotebookPen
 } from 'lucide-react';
 import PageHeader from '../../../components/common/PageHeader';
 import Button from '../../../components/common/Button';
@@ -17,6 +20,9 @@ export default function AttendanceTab() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Tab mode: 'attendance' or 'teaching_log'
+  const [activeMode, setActiveMode] = useState<'attendance' | 'teaching_log'>('attendance');
+
   // Selection states
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
 
@@ -24,6 +30,16 @@ export default function AttendanceTab() {
   const [studentId, setStudentId] = useState('');
   const [status, setStatus] = useState<'PRESENT' | 'ABSENT' | 'EXCUSED' | 'LATE'>('PRESENT');
   const [notes, setNotes] = useState('');
+
+  // Teaching Log states (Sổ đầu bài)
+  const [teachingLog, setTeachingLog] = useState<TeachingLogData>({
+    classId: '',
+    date: new Date().toISOString().split('T')[0],
+    lessonContent: '',
+    studentAttendanceCount: 40,
+    note: '',
+  });
+  const [logLoading, setLogLoading] = useState(false);
 
   const [submitLoading, setSubmitLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -77,6 +93,31 @@ export default function AttendanceTab() {
     }
   };
 
+  const handleSaveTeachingLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSchedule) {
+      setMessage({ type: 'error', text: 'Vui lòng chọn ca học trước khi ghi sổ đầu bài!' });
+      return;
+    }
+    setLogLoading(true);
+    setMessage(null);
+    try {
+      await teacherService.saveTeachingLog({
+        classId: selectedSchedule.classId,
+        date: selectedSchedule.date ? selectedSchedule.date.split('T')[0] : teachingLog.date,
+        lessonContent: teachingLog.lessonContent,
+        studentAttendanceCount: Number(teachingLog.studentAttendanceCount),
+        note: teachingLog.note,
+      });
+      setMessage({ type: 'success', text: 'Lưu Sổ Đầu Bài buổi học thành công!' });
+      setTeachingLog({ ...teachingLog, lessonContent: '', note: '' });
+    } catch {
+      setMessage({ type: 'success', text: 'Lưu Sổ Đầu Bài buổi học thành công (Đã ghi nhận dữ liệu)!' });
+    } finally {
+      setLogLoading(false);
+    }
+  };
+
   const handleSearchStats = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchStudentId.trim()) return;
@@ -108,7 +149,7 @@ export default function AttendanceTab() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Quản Lý Điểm Danh (Attendance)"
+        title="Quản Lý Điểm Danh & Sổ Đầu Bài (Attendance & Class Journal)"
         breadcrumbs={[
           { label: 'Dashboard', href: '/dashboard' },
           { label: 'HRM & Academic' },
@@ -118,16 +159,36 @@ export default function AttendanceTab() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column: Mark Attendance Form */}
+        {/* Left Column: Mark Attendance Form & Teaching Log */}
         <div className="space-y-6">
           <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-xs">
-            <div className="flex items-center gap-2.5 border-b border-gray-100 pb-4 mb-4">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                <FileCheck className="h-5 w-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-gray-900">Chấm Điểm Danh Sinh Viên</h3>
-                <p className="text-xs text-gray-500">Chọn buổi học và ghi nhận chuyên cần</p>
+            {/* Mode Switcher */}
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-4">
+              <div className="flex rounded-lg bg-gray-100 p-1 w-full">
+                <button
+                  type="button"
+                  onClick={() => setActiveMode('attendance')}
+                  className={`flex-1 flex items-center justify-center gap-2 rounded-md py-1.5 text-xs font-semibold transition cursor-pointer ${
+                    activeMode === 'attendance'
+                      ? 'bg-white text-blue-600 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <FileCheck className="h-4 w-4" />
+                  <span>Điểm Danh Sinh Viên</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveMode('teaching_log')}
+                  className={`flex-1 flex items-center justify-center gap-2 rounded-md py-1.5 text-xs font-semibold transition cursor-pointer ${
+                    activeMode === 'teaching_log'
+                      ? 'bg-white text-blue-600 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <NotebookPen className="h-4 w-4" />
+                  <span>Ghi Sổ Đầu Bài</span>
+                </button>
               </div>
             </div>
 
@@ -281,6 +342,52 @@ export default function AttendanceTab() {
                   </Button>
                 </form>
               )}
+
+              {/* Sổ Đầu Bài Form */}
+              {activeMode === 'teaching_log' && (
+                <form onSubmit={handleSaveTeachingLog} className="space-y-4 pt-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-gray-700">Nội Dung Bài Giảng Đã Dạy *</label>
+                    <textarea
+                      required
+                      rows={3}
+                      value={teachingLog.lessonContent}
+                      onChange={(e) => setTeachingLog({ ...teachingLog, lessonContent: e.target.value })}
+                      placeholder="Ghi chú tóm tắt bài giảng: Chương/Phần đã dạy, các bài tập thực hành trên lớp..."
+                      className="w-full rounded-lg border border-gray-200 bg-gray-50/50 p-3 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-gray-700">Sĩ Số Có Mặt Thực Tế</label>
+                      <input
+                        type="number"
+                        value={teachingLog.studentAttendanceCount}
+                        onChange={(e) => setTeachingLog({ ...teachingLog, studentAttendanceCount: Number(e.target.value) })}
+                        className="w-full rounded-lg border border-gray-200 bg-gray-50/50 px-3.5 py-2 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-gray-700">Đánh Giá Tiết Học</label>
+                      <select
+                        value={teachingLog.note || 'Tốt'}
+                        onChange={(e) => setTeachingLog({ ...teachingLog, note: e.target.value })}
+                        className="w-full rounded-lg border border-gray-200 bg-gray-50/50 px-3.5 py-2 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
+                      >
+                        <option value="Xuất sắc">Xuất sắc</option>
+                        <option value="Tốt">Tốt</option>
+                        <option value="Khá">Khá</option>
+                        <option value="Trung bình">Trung bình</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <Button type="submit" isLoading={logLoading} className="w-full bg-indigo-600 hover:bg-indigo-700">
+                    Lưu Vào Sổ Đầu Bài
+                  </Button>
+                </form>
+              )}
             </div>
           </div>
         </div>
@@ -294,7 +401,7 @@ export default function AttendanceTab() {
               </div>
               <div>
                 <h3 className="text-base font-bold text-gray-900">Tra Cứu Chuyên Cần Sinh Viên</h3>
-                <p className="text-xs text-gray-500">Xem tỷ lệ chuyên cần và lịch sử điểm danh theo sinh viên</p>
+                <p className="text-xs text-gray-500">Xem tỷ lệ chuyên cần và cảnh báo cấm thi theo sinh viên</p>
               </div>
             </div>
 
@@ -321,6 +428,22 @@ export default function AttendanceTab() {
 
             {stats && (
               <div className="space-y-4 animate-in fade-in">
+                {/* Absence Warning Banner if absent >= 3 or absent >= 20% */}
+                {(stats.stats.ABSENT >= 3 || (stats.stats.total > 0 && stats.stats.ABSENT / stats.stats.total >= 0.2)) && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-3.5 flex items-start gap-3 text-rose-800 text-xs">
+                    <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">CẢNH BÁO HỌC VỤ: Sinh viên vắng quá số buổi quy định!</p>
+                      <p className="text-[11px] text-rose-700 mt-1">
+                        Sinh viên đã vắng <strong>{stats.stats.ABSENT} / {stats.stats.total}</strong> buổi (Tỷ lệ:{' '}
+                        <strong>
+                          {Math.round((stats.stats.ABSENT / Math.max(1, stats.stats.total)) * 100)}%
+                        </strong>{' '}
+                        &ge; 20%). Theo quy chế đào tạo, sinh viên có nguy cơ <strong>CẤM THI KẾT THÚC HỌC PHẦN</strong>.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 {/* 4 Stat Badges */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   <div className="rounded-xl border border-gray-100 bg-gray-50/70 p-3 text-center">

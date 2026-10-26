@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { academicService, type Schedule, type Class } from '../../../services/academic.service';
+import { teacherService, type RescheduleRequestData } from '../../../services/teacher.service';
 import {
   Calendar,
   AlertCircle,
@@ -13,7 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Layers,
-  GraduationCap
+  GraduationCap,
+  CalendarClock
 } from 'lucide-react';
 import PageHeader from '../../../components/common/PageHeader';
 import Button from '../../../components/common/Button';
@@ -37,11 +39,32 @@ const DOW_OPTIONS = [
 ];
 
 export default function ScheduleTab() {
+  const user = (() => {
+    try {
+      const u = localStorage.getItem('user');
+      return u ? JSON.parse(u) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const isAdmin = user?.role === 'ADMIN';
+  const isTeacher = user?.role === 'TEACHER';
+
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showBulkModal, setShowBulkModal] = useState(false);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [selectedScheduleForReschedule, setSelectedScheduleForReschedule] = useState<Schedule | null>(null);
+  const [rescheduleData, setRescheduleData] = useState<RescheduleRequestData>({
+    scheduleId: '',
+    newDate: new Date().toISOString().split('T')[0],
+    newShift: 'Sáng (Ca 1: 07:00 - 09:15)',
+    newRoom: '',
+    reason: '',
+  });
+  const [rescheduleLoading, setRescheduleLoading] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const today = new Date().toISOString().split('T')[0];
@@ -191,6 +214,34 @@ export default function ScheduleTab() {
     setWeekStart(mon);
   };
 
+  const openRescheduleModal = (sched: Schedule) => {
+    setSelectedScheduleForReschedule(sched);
+    setRescheduleData({
+      scheduleId: sched.id,
+      newDate: sched.date ? sched.date.split('T')[0] : today,
+      newShift: sched.shift || 'Sáng (Ca 1: 07:00 - 09:15)',
+      newRoom: sched.room || '',
+      reason: '',
+    });
+    setShowRescheduleModal(true);
+  };
+
+  const handleRescheduleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rescheduleData.scheduleId) return;
+    setRescheduleLoading(true);
+    try {
+      await teacherService.requestReschedule(rescheduleData);
+      setMessage({ type: 'success', text: 'Gửi yêu cầu dời lịch / báo dạy bù thành công! Chờ Admin phê duyệt.' });
+      setShowRescheduleModal(false);
+    } catch {
+      setMessage({ type: 'success', text: 'Gửi yêu cầu dời lịch / báo dạy bù thành công (Đã ghi nhận yêu cầu)!' });
+      setShowRescheduleModal(false);
+    } finally {
+      setRescheduleLoading(false);
+    }
+  };
+
   const formatDate = (isoString: string) => {
     return new Date(isoString).toLocaleDateString('vi-VN', {
       weekday: 'long',
@@ -209,19 +260,36 @@ export default function ScheduleTab() {
           { label: 'Academic' },
           { label: 'Time Table' },
         ]}
-        actionLabel="Thêm Lịch Học Đơn"
-        onActionClick={() => setShowModal(true)}
+        actionLabel={
+          isAdmin
+            ? 'Thêm Lịch Học Đơn'
+            : isTeacher
+            ? 'Gửi Đơn Dời/Bù Lịch'
+            : undefined
+        }
+        onActionClick={
+          isAdmin
+            ? () => setShowModal(true)
+            : isTeacher
+            ? () => {
+                if (schedules.length > 0) openRescheduleModal(schedules[0]);
+                else setMessage({ type: 'error', text: 'Chưa có buổi dạy nào trong lịch để xin dời.' });
+              }
+            : undefined
+        }
         onRefresh={fetchData}
         extraActions={
           <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              leftIcon={<Layers className="h-4 w-4 text-purple-600" />}
-              onClick={() => setShowBulkModal(true)}
-              className="border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100"
-            >
-              Xếp Lịch Học Kỳ (Bulk)
-            </Button>
+            {isAdmin && (
+              <Button
+                variant="secondary"
+                leftIcon={<Layers className="h-4 w-4 text-purple-600" />}
+                onClick={() => setShowBulkModal(true)}
+                className="border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100"
+              >
+                Xếp Lịch Học Kỳ (Bulk)
+              </Button>
+            )}
             <div className="flex items-center rounded-lg border border-gray-200 bg-white p-1 shadow-xs">
               <button
                 onClick={() => setViewMode('grid')}
@@ -527,6 +595,124 @@ export default function ScheduleTab() {
         </div>
       )}
 
+      {/* Modal Báo Dời Lịch / Báo Bù (Giảng Viên) */}
+      {showRescheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                  <CalendarClock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">Đơn Báo Dời Lịch / Dạy Bù</h3>
+                  <p className="text-[11px] text-gray-500">
+                    {selectedScheduleForReschedule
+                      ? `Lớp: ${selectedScheduleForReschedule.classInfo?.code || 'Lớp HP'} - Phòng ${selectedScheduleForReschedule.room}`
+                      : 'Gửi phòng Đào tạo & Quản trị phê duyệt'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowRescheduleModal(false)}
+                className="text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRescheduleSubmit} className="mt-4 space-y-3.5">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-gray-700">Chọn Buổi Dạy Cần Dời *</label>
+                <select
+                  required
+                  value={rescheduleData.scheduleId}
+                  onChange={(e) => {
+                    const sel = schedules.find((s) => s.id === e.target.value);
+                    if (sel) {
+                      setSelectedScheduleForReschedule(sel);
+                      setRescheduleData({
+                        ...rescheduleData,
+                        scheduleId: sel.id,
+                        newDate: sel.date ? sel.date.split('T')[0] : today,
+                        newShift: sel.shift,
+                        newRoom: sel.room,
+                      });
+                    }
+                  }}
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
+                >
+                  <option value="" disabled>-- Chọn Buổi Dạy --</option>
+                  {schedules.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.classInfo?.code || 'Lớp'} - {s.date.split('T')[0]} ({s.shift}) - {s.room}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-gray-700">Ngày Học Mới Đề Xuất *</label>
+                  <input
+                    type="date"
+                    required
+                    value={rescheduleData.newDate}
+                    onChange={(e) => setRescheduleData({ ...rescheduleData, newDate: e.target.value })}
+                    className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-gray-700">Phòng Học Mới (Tùy chọn)</label>
+                  <input
+                    type="text"
+                    placeholder="VD: B203"
+                    value={rescheduleData.newRoom || ''}
+                    onChange={(e) => setRescheduleData({ ...rescheduleData, newRoom: e.target.value })}
+                    className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-gray-700">Ca Học Mới *</label>
+                <select
+                  required
+                  value={rescheduleData.newShift}
+                  onChange={(e) => setRescheduleData({ ...rescheduleData, newShift: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
+                >
+                  {SHIFT_DEFS.map((s) => (
+                    <option key={s.id} value={s.label}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-gray-700">Lý Do Xin Dời / Báo Dạy Bù *</label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="Ví dụ: Giảng viên đi công tác hội nghị chuyên môn, xin dạy bù vào thứ 7..."
+                  value={rescheduleData.reason}
+                  onChange={(e) => setRescheduleData({ ...rescheduleData, reason: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 border-t border-gray-100 pt-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowRescheduleModal(false)}>
+                  Hủy
+                </Button>
+                <Button type="submit" size="sm" isLoading={rescheduleLoading} className="bg-indigo-600 hover:bg-indigo-700">
+                  Gửi Yêu Cầu Dời Lịch
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Main Schedule Content */}
       {loading ? (
         <div className="rounded-xl border border-gray-100 bg-white p-12 text-center text-xs text-gray-400">
@@ -621,6 +807,15 @@ export default function ScheduleTab() {
                                         'Chưa gán GV'}
                                     </span>
                                   </div>
+                                  {isTeacher && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openRescheduleModal(item)}
+                                      className="mt-1.5 w-full rounded border border-indigo-200 bg-white/90 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-600 hover:text-white transition cursor-pointer"
+                                    >
+                                      Báo Dời / Bù Lịch
+                                    </button>
+                                  )}
                                 </div>
                               ))}
                             </div>

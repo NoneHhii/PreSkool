@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -8,12 +8,17 @@ import {
   Calendar,
   ClipboardCheck,
   Building2,
-  ChevronDown,
   Layers,
   School,
   LogOut,
   User,
-  UploadCloud
+  UploadCloud,
+  CreditCard,
+  FileCheck2,
+  Tv,
+  FolderTree,
+  FileText,
+  UserCheck,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -27,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onSelectTab,
   isOpen = true,
-  onClose
+  onClose,
 }) => {
   const navigate = useNavigate();
   const user = (() => {
@@ -38,25 +43,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return null;
     }
   })();
-  const isAdmin = user?.role === 'ADMIN';
 
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    dashboard: true,
-    academic: true,
-    peoples: false,
-  });
-
-  const toggleSection = (sectionKey: string) => {
-    setOpenSections((prev) => ({
-      ...prev,
-      [sectionKey]: !prev[sectionKey],
-    }));
-  };
+  const role = user?.role || 'STUDENT';
+  const isAdmin = role === 'ADMIN';
+  const isTeacher = role === 'TEACHER';
+  const isStudent = role === 'STUDENT';
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/');
+    navigate('/', { replace: true });
+  };
+
+  const handleTabClick = (tabId: string) => {
+    onSelectTab(tabId);
+    if (onClose && window.innerWidth < 768) {
+      onClose();
+    }
   };
 
   return (
@@ -94,89 +97,93 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <School className="h-4 w-4" />
               </div>
               <div className="truncate">
-                <p className="truncate text-xs font-semibold text-gray-900">Global International</p>
-                <p className="text-[10px] text-gray-400">School ERP System</p>
+                <p className="truncate text-xs font-semibold text-gray-900">Đại Học Công Nghệ</p>
+                <p className="text-[10px] text-gray-400">
+                  {isAdmin ? 'Quản Trị Viên' : isTeacher ? 'Giảng Viên' : 'Cổng Sinh Viên'}
+                </p>
               </div>
             </div>
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700 uppercase">
+              {role}
+            </span>
           </div>
         </div>
 
         {/* Scrollable Navigation Menu */}
-        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-6 scrollbar-thin">
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-5 scrollbar-thin">
           {/* Main Section */}
           <div>
-            <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-gray-400">Main</p>
+            <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">Tổng Quan</p>
             <div className="space-y-1">
-              {/* Dashboard dropdown */}
-              <div>
+              {isAdmin && (
                 <button
-                  onClick={() => toggleSection('dashboard')}
+                  onClick={() => handleTabClick('overview')}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
-                    activeTab === 'overview' || activeTab === 'teacher-overview'
-                      ? 'bg-blue-50 text-blue-700 font-semibold'
+                    activeTab === 'overview'
+                      ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <LayoutDashboard className="h-4 w-4 text-blue-600" />
-                    <span>Dashboard</span>
+                    <span>Admin Dashboard</span>
                   </div>
-                  <ChevronDown
-                    className={`h-3.5 w-3.5 text-gray-400 transition-transform ${
-                      openSections.dashboard ? 'rotate-180' : ''
-                    }`}
-                  />
+                  <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[9px] font-bold text-blue-700">Admin</span>
                 </button>
+              )}
 
-                {openSections.dashboard && (
-                  <div className="mt-1 ml-4 space-y-1 border-l-2 border-gray-100 pl-3">
-                    {isAdmin && (
-                      <button
-                        onClick={() => onSelectTab('overview')}
-                        className={`flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs transition cursor-pointer ${
-                          activeTab === 'overview'
-                            ? 'text-blue-600 font-semibold bg-blue-50/50'
-                            : 'text-gray-500 hover:text-gray-900'
-                        }`}
-                      >
-                        <span>Admin Dashboard</span>
-                        <span className="rounded bg-blue-100 px-1 py-0.2 text-[9px] font-bold text-blue-700">Admin</span>
-                      </button>
-                    )}
-                    <button
-                      onClick={() => onSelectTab('teacher-overview')}
-                      className={`flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs transition cursor-pointer ${
-                        activeTab === 'teacher-overview'
-                          ? 'text-blue-600 font-semibold bg-blue-50/50'
-                          : 'text-gray-500 hover:text-gray-900'
-                      }`}
-                    >
-                      <span>Teacher Dashboard</span>
-                      <span className="rounded bg-emerald-100 px-1 py-0.2 text-[9px] font-bold text-emerald-700">Teacher</span>
-                    </button>
+              {isTeacher && (
+                <button
+                  onClick={() => handleTabClick('teacher-overview')}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                    activeTab === 'teacher-overview'
+                      ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <LayoutDashboard className="h-4 w-4 text-emerald-600" />
+                    <span>Teacher Dashboard</span>
                   </div>
-                )}
-              </div>
+                  <span className="rounded bg-emerald-100 px-1.5 py-0.2 text-[9px] font-bold text-emerald-700">Giảng Viên</span>
+                </button>
+              )}
             </div>
           </div>
 
           {/* Peoples Section (Admin only) */}
           {isAdmin && (
             <div>
-              <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-gray-400">Peoples</p>
+              <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">Hồ Sơ & Tuyển Sinh</p>
               <div className="space-y-1">
+                {/* Hồ sơ Sinh viên */}
                 <button
-                  onClick={() => onSelectTab('import')}
+                  onClick={() => handleTabClick('students')}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                    activeTab === 'students'
+                      ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Users className="h-4 w-4 text-indigo-500" />
+                    <span>Hồ Sơ & Trạng Thái SV</span>
+                  </div>
+                  <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-bold text-indigo-700">Audit</span>
+                </button>
+
+                {/* Import Users Excel */}
+                <button
+                  onClick={() => handleTabClick('import')}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
                     activeTab === 'import'
-                      ? 'bg-blue-50 text-blue-700 font-semibold'
+                      ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <UploadCloud className="h-4 w-4 text-sky-500" />
-                    <span>Import Sinh viên</span>
+                    <span>Import Tuyển Sinh</span>
                   </div>
                   <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">Excel</span>
                 </button>
@@ -184,48 +191,98 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
 
-          {/* Academic Section */}
+          {/* Academic & Teaching Section */}
           <div>
-            <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-gray-400">Academic</p>
+            <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+              {isAdmin ? 'Quản Lý Đào Tạo' : 'Lịch & Giảng Dạy'}
+            </p>
             <div className="space-y-1">
+              {/* Thời khóa biểu (All roles) */}
+              <button
+                onClick={() => handleTabClick('schedule')}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                  activeTab === 'schedule'
+                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Calendar className="h-4 w-4 text-rose-500" />
+                  <span>Thời Khóa Biểu</span>
+                </div>
+              </button>
+
+              {/* Điểm danh & Sổ đầu bài (Admin & Teacher) */}
+              {(isAdmin || isTeacher) && (
+                <button
+                  onClick={() => handleTabClick('attendance')}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                    activeTab === 'attendance'
+                      ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <ClipboardCheck className="h-4 w-4 text-teal-500" />
+                    <span>Điểm Danh & Sổ Đầu Bài</span>
+                  </div>
+                </button>
+              )}
+
+              {/* Lớp Học Phần (Admin & Teacher) */}
+              {(isAdmin || isTeacher) && (
+                <button
+                  onClick={() => handleTabClick('classes')}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                    activeTab === 'classes'
+                      ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Layers className="h-4 w-4 text-indigo-500" />
+                    <span>Lớp Học Phần</span>
+                  </div>
+                </button>
+              )}
+
+              {/* Admin specific academic submodules */}
               {isAdmin && (
                 <>
-                  {/* Lớp Học Phần */}
                   <button
-                    onClick={() => onSelectTab('classes')}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
-                      activeTab === 'classes'
-                        ? 'bg-blue-50 text-blue-700 font-semibold'
-                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <Layers className="h-4 w-4 text-indigo-500" />
-                      <span>Lớp Học Phần</span>
-                    </div>
-                  </button>
-
-                  {/* Lớp Hành Chính */}
-                  <button
-                    onClick={() => onSelectTab('homerooms')}
+                    onClick={() => handleTabClick('homerooms')}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
                       activeTab === 'homerooms'
-                        ? 'bg-blue-50 text-blue-700 font-semibold'
+                        ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                         : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
                       <Users className="h-4 w-4 text-blue-500" />
-                      <span>Lớp Hành Chính</span>
+                      <span>Lớp Hành Chính (Auto)</span>
                     </div>
                   </button>
 
-                  {/* Môn Học (Courses) */}
                   <button
-                    onClick={() => onSelectTab('courses')}
+                    onClick={() => handleTabClick('curriculums')}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                      activeTab === 'curriculums'
+                        ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <FolderTree className="h-4 w-4 text-purple-600" />
+                      <span>Khung Chương Trình</span>
+                    </div>
+                    <span className="rounded bg-purple-50 px-1 py-0.2 text-[9px] font-bold text-purple-700">Mới</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleTabClick('courses')}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
                       activeTab === 'courses'
-                        ? 'bg-blue-50 text-blue-700 font-semibold'
+                        ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                         : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     }`}
                   >
@@ -235,12 +292,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                   </button>
 
-                  {/* Ngành Học (Majors) */}
                   <button
-                    onClick={() => onSelectTab('majors')}
+                    onClick={() => handleTabClick('majors')}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
                       activeTab === 'majors'
-                        ? 'bg-blue-50 text-blue-700 font-semibold'
+                        ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                         : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     }`}
                   >
@@ -250,12 +306,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                   </button>
 
-                  {/* Khoa / Viện (Faculties) */}
                   <button
-                    onClick={() => onSelectTab('faculties')}
+                    onClick={() => handleTabClick('faculties')}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
                       activeTab === 'faculties'
-                        ? 'bg-blue-50 text-blue-700 font-semibold'
+                        ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                         : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     }`}
                   >
@@ -266,54 +321,122 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </button>
                 </>
               )}
-
-              {/* Thời khóa biểu (Time Table) */}
-              <button
-                onClick={() => onSelectTab('schedule')}
-                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
-                  activeTab === 'schedule'
-                    ? 'bg-blue-50 text-blue-700 font-semibold'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Calendar className="h-4 w-4 text-rose-500" />
-                  <span>Thời Khóa Biểu</span>
-                </div>
-              </button>
             </div>
           </div>
 
-          {/* HRM & Management Section */}
+          {/* ERP Core Modules Section */}
           <div>
-            <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-gray-400">Quản Lý & Điểm Danh</p>
+            <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">Phân Hệ Nghiệp Vụ ERP</p>
             <div className="space-y-1">
+              {/* Đăng Ký Tín Chỉ (Admin & Student) */}
+              {(isAdmin || isStudent) && (
+                <button
+                  onClick={() => handleTabClick('registration')}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                    activeTab === 'registration'
+                      ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <FileCheck2 className="h-4 w-4 text-cyan-600" />
+                    <span>Đăng Ký Tín Chỉ</span>
+                  </div>
+                </button>
+              )}
+
+              {/* Khảo Thí & Quản Trị Điểm (All Roles) */}
               <button
-                onClick={() => onSelectTab('attendance')}
+                onClick={() => handleTabClick('examination')}
                 className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
-                  activeTab === 'attendance'
-                    ? 'bg-blue-50 text-blue-700 font-semibold'
+                  activeTab === 'examination'
+                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <ClipboardCheck className="h-4 w-4 text-teal-500" />
-                  <span>Điểm Danh (Attendance)</span>
+                  <FileText className="h-4 w-4 text-orange-500" />
+                  <span>Khảo Thí & Quản Trị Điểm</span>
                 </div>
+              </button>
+
+              {/* Tài Chính & Học Phí (Admin & Student) */}
+              {(isAdmin || isStudent) && (
+                <button
+                  onClick={() => handleTabClick('finance')}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                    activeTab === 'finance'
+                      ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <CreditCard className="h-4 w-4 text-emerald-600" />
+                    <span>Tài Chính & Học Phí</span>
+                  </div>
+                </button>
+              )}
+
+              {/* Cố Vấn Học Tập (Admin & Teacher) */}
+              {(isAdmin || isTeacher) && (
+                <button
+                  onClick={() => handleTabClick('advisor')}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                    activeTab === 'advisor'
+                      ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <UserCheck className="h-4 w-4 text-blue-600" />
+                    <span>Cố Vấn Học Tập</span>
+                  </div>
+                </button>
+              )}
+
+              {/* Công Tác Sinh Viên & Điểm Rèn Luyện (All roles) */}
+              <button
+                onClick={() => handleTabClick('affairs')}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                  activeTab === 'affairs'
+                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Users className="h-4 w-4 text-pink-500" />
+                  <span>Công Tác SV & Dịch Vụ 1 Cửa</span>
+                </div>
+              </button>
+
+              {/* LMS & Học Trực Tuyến (All roles) */}
+              <button
+                onClick={() => handleTabClick('lms')}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                  activeTab === 'lms'
+                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Tv className="h-4 w-4 text-violet-600" />
+                  <span>Khóa Học LMS (E-Learning)</span>
+                </div>
+                <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold text-violet-700">LMS 2.0</span>
               </button>
             </div>
           </div>
 
           {/* User Settings */}
           <div>
-            <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-gray-400">Tài Khoản</p>
+            <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">Tài Khoản</p>
             <div className="space-y-1">
               <button
                 onClick={() => navigate('/profile')}
                 className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition cursor-pointer"
               >
                 <User className="h-4 w-4 text-gray-500" />
-                <span>Hồ Sơ Cá Nhân</span>
+                <span>Hồ Sơ Cá Nhân & Bảo Mật</span>
               </button>
               <button
                 onClick={handleLogout}
