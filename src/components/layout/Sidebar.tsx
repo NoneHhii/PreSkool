@@ -19,6 +19,7 @@ import {
   FolderTree,
   FileText,
   UserCheck,
+  Video,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -423,6 +424,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span>Khóa Học LMS (E-Learning)</span>
                 </div>
                 <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold text-violet-700">LMS 2.0</span>
+              </button>
+
+              {/* PreSkool MS Teams & Lớp Học Ảo (All roles) */}
+              <button
+                onClick={() => handleTabClick('teams')}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                  activeTab === 'teams'
+                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-2xs'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Video className="h-4 w-4 text-indigo-600" />
+                  <span>PreSkool MS Teams</span>
+                </div>
+                <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-bold text-indigo-700">Live</span>
               </button>
             </div>
           </div>

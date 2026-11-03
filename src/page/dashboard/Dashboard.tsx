@@ -28,6 +28,7 @@ import TuitionTab from './components/TuitionTab';
 import AdvisorTab from './components/AdvisorTab';
 import StudentAffairsTab from './components/StudentAffairsTab';
 import LmsTab from './components/LmsTab';
+import TeamsTab from './components/TeamsTab';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -398,6 +399,7 @@ export default function Dashboard() {
       {activeTab === 'advisor' && (isAdmin || isTeacher) && <AdvisorTab user={user} />}
       {activeTab === 'affairs' && <StudentAffairsTab user={user} />}
       {activeTab === 'lms' && <LmsTab user={user} />}
+      {activeTab === 'teams' && <TeamsTab user={user} />}
     </DashboardLayout>
   );
 }
