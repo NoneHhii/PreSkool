@@ -1,36 +1,88 @@
 // ==========================================
 // REAL-TIME SOCKET.IO & WEBRTC SIGNALING SERVICE
+// Connected to PreSkool-BE teams.socket.ts
 // ==========================================
+
+import { io, Socket } from 'socket.io-client';
 
 type EventHandler = (data: any) => void;
 
+export const getSocketUrl = (): string => {
+  const customSocket = localStorage.getItem('preskool_socket_url');
+  if (customSocket) return customSocket;
+
+  const customApi = localStorage.getItem('preskool_api_url');
+  if (customApi) {
+    try {
+      const url = new URL(customApi);
+      return `${url.protocol}//${url.host}`;
+    } catch {
+      // ignore
+    }
+  }
+
+  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
+
+  if (import.meta.env.VITE_API_URL) {
+    try {
+      const url = new URL(import.meta.env.VITE_API_URL);
+      return `${url.protocol}//${url.host}`;
+    } catch {
+      // ignore
+    }
+  }
+
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ) {
+    return 'http://localhost:8000';
+  }
+
+  return 'https://pre-skool-be.vercel.app';
+};
+
 class SocketService {
-  private socket: WebSocket | null = null;
+  private socket: Socket | null = null;
   private listeners: Map<string, Set<EventHandler>> = new Map();
   private isConnected = false;
-  private url: string;
+  private socketUrl: string;
   private token: string | null = null;
-  private reconnectTimer: any = null;
+  private currentUserId: string = '';
   private broadcastChannel: BroadcastChannel | null = null;
+  private processedEventIds = new Set<string>();
 
-  // Unique client/peer ID for this tab session
+  // Unique client ID for this browser tab session
   public readonly clientId: string = `peer_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36).slice(-4)}`;
 
   public get connected(): boolean {
-    return this.isConnected;
+    return this.isConnected && (this.socket?.connected ?? false);
+  }
+
+  public get socketInstance(): Socket | null {
+    return this.socket;
   }
 
   constructor() {
-    const host = window.location.hostname || 'localhost';
-    this.url = `ws://${host}:8000`;
+    this.socketUrl = getSocketUrl();
 
-    // Cross-tab broadcast channel for local peer signaling & real-time testing
+    // Cross-tab broadcast channel for local synchronization & fallback
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       try {
         this.broadcastChannel = new BroadcastChannel('preskool_teams_realtime_mesh');
         this.broadcastChannel.onmessage = (msgEvent) => {
-          const { event, data, senderClientId } = msgEvent.data || {};
-          // Only process messages from OTHER tabs/instances
+          const { event, data, senderClientId, eventId } = msgEvent.data || {};
+          if (eventId && this.processedEventIds.has(eventId)) {
+            return;
+          }
+          if (eventId) {
+            this.processedEventIds.add(eventId);
+            if (this.processedEventIds.size > 200) {
+              const firstKey = this.processedEventIds.values().next().value;
+              if (firstKey) this.processedEventIds.delete(firstKey);
+            }
+          }
+          // Process messages from other tabs if socket is disconnected or for local tab sync
           if (event && senderClientId !== this.clientId) {
             this.triggerLocal(event, data);
           }
@@ -42,48 +94,108 @@ class SocketService {
   }
 
   public connect(token?: string) {
-    this.token = token || localStorage.getItem('token') || '';
+    const nextToken = token || localStorage.getItem('token') || '';
+    if (this.socket?.connected && this.token === nextToken) {
+      return;
+    }
+
+    this.token = nextToken;
+    this.socketUrl = getSocketUrl();
+
+    // Extract currentUserId from JWT token or localStorage
+    try {
+      if (this.token && this.token.includes('.')) {
+        const payloadBase64 = this.token.split('.')[1];
+        const decoded = JSON.parse(atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/')));
+        this.currentUserId = decoded.userId || decoded.id || '';
+      }
+    } catch {
+      // ignore
+    }
+    if (!this.currentUserId) {
+      try {
+        const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+        this.currentUserId = savedUser.id || savedUser.userId || '';
+      } catch {
+        // ignore
+      }
+    }
+
+    if (this.socket) {
+      try {
+        this.socket.disconnect();
+      } catch {
+        // ignore
+      }
+      this.socket = null;
+    }
 
     try {
-      const wsUrl = `${this.url}/socket.io/?token=${encodeURIComponent(this.token)}`;
-      this.socket = new WebSocket(wsUrl);
+      this.socket = io(this.socketUrl, {
+        auth: { token: this.token },
+        extraHeaders: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+        transports: ['websocket', 'polling'],
+        autoConnect: false,
+        reconnection: true,
+        reconnectionAttempts: 15,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 10000,
+      });
 
-      this.socket.onopen = () => {
+      this.socket.on('connect', () => {
         this.isConnected = true;
-        this.emit('authenticate', { auth: { token: this.token }, clientId: this.clientId });
-        this.triggerLocal('connect', { connected: true });
-      };
+        this.triggerLocal('connect', { connected: true, socketId: this.socket?.id });
+      });
 
-      this.socket.onmessage = (event) => {
-        try {
-          const parsed = JSON.parse(event.data);
-          if (parsed.event) {
-            this.triggerLocal(parsed.event, parsed.data);
-          }
-        } catch {
-          // Socket raw message or ping
-        }
-      };
-
-      this.socket.onclose = () => {
+      this.socket.on('disconnect', (reason) => {
         this.isConnected = false;
-        this.triggerLocal('disconnect', {});
-      };
+        this.triggerLocal('disconnect', { reason });
+      });
 
-      this.socket.onerror = () => {
+      this.socket.on('connect_error', (error) => {
         this.isConnected = false;
-      };
-    } catch {
+        this.triggerLocal('connect_error', error);
+      });
+
+      // 17 Real-time Events from teams.socket.ts:
+      const forwardedEvents = [
+        'presence_change',
+        'user_joined_meeting',
+        'user_left_meeting',
+        'user_typing',
+        'new_channel_message',
+        'new_direct_message',
+        'webrtc_offer',
+        'webrtc_answer',
+        'webrtc_ice_candidate',
+        'hand_raised',
+        'hand_lowered',
+        'force_muted_by_host',
+        'new_live_poll',
+        'whiteboard_stroke',
+      ];
+
+      forwardedEvents.forEach((evtName) => {
+        this.socket?.on(evtName, (payload: any) => {
+          this.triggerLocal(evtName, payload);
+        });
+      });
+
+      this.socket.connect();
+    } catch (err) {
       this.isConnected = false;
+      this.triggerLocal('connect_error', err);
     }
   }
 
   public disconnect() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-    }
     if (this.socket) {
-      this.socket.close();
+      try {
+        this.socket.disconnect();
+      } catch {
+        // ignore
+      }
       this.socket = null;
     }
     this.isConnected = false;
@@ -91,30 +203,81 @@ class SocketService {
   }
 
   public emit(event: string, payload?: any) {
-    // 1. Send through WebSocket if active
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+    const eventId = `${this.clientId}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    this.processedEventIds.add(eventId);
+
+    // 1. If Socket.IO is connected, emit ONLY to Socket.IO Server and return immediately!
+    if (this.socket && this.socket.connected) {
       try {
-        this.socket.send(JSON.stringify({ event, data: payload, senderClientId: this.clientId }));
+        this.socket.emit(event, payload);
       } catch (err) {
-        console.warn('Socket send error, forwarding locally:', err);
+        console.warn(`Socket.IO emit failed for ${event}:`, err);
       }
+      return;
     }
 
-    // 2. Broadcast to other tabs on the same origin (for instant zero-backend WebRTC testing)
+    // 2. ONLY when disconnected, broadcast fallback across local tabs with Server-to-Client translation
     if (this.broadcastChannel) {
       try {
+        let broadcastEvent = event;
+        let broadcastData = payload;
+
+        if (event === 'direct_message') {
+          broadcastEvent = 'new_direct_message';
+          broadcastData = { ...payload, senderId: this.currentUserId, timestamp: new Date().toISOString() };
+        } else if (event === 'channel_message') {
+          broadcastEvent = 'new_channel_message';
+          broadcastData = { ...payload, senderId: this.currentUserId, timestamp: new Date().toISOString() };
+        } else if (event === 'typing') {
+          broadcastEvent = 'user_typing';
+          broadcastData = { ...payload, userId: this.currentUserId };
+        } else if (event === 'join_meeting') {
+          broadcastEvent = 'user_joined_meeting';
+          broadcastData = {
+            userId: this.currentUserId,
+            meetingId: typeof payload === 'string' ? payload : payload?.meetingId,
+            socketId: this.clientId,
+          };
+        } else if (event === 'leave_meeting') {
+          broadcastEvent = 'user_left_meeting';
+          broadcastData = {
+            userId: this.currentUserId,
+            meetingId: typeof payload === 'string' ? payload : payload?.meetingId,
+          };
+        } else if (
+          event === 'webrtc_offer' ||
+          event === 'webrtc_answer' ||
+          event === 'webrtc_ice_candidate'
+        ) {
+          broadcastEvent = event;
+          broadcastData = { ...payload, fromUserId: this.currentUserId };
+        } else if (event === 'raise_hand') {
+          broadcastEvent = 'hand_raised';
+          broadcastData = { userId: this.currentUserId, raisedAt: new Date().toISOString() };
+        } else if (event === 'lower_hand') {
+          broadcastEvent = 'hand_lowered';
+          broadcastData = { userId: this.currentUserId };
+        } else if (event === 'mute_all_forced') {
+          broadcastEvent = 'force_muted_by_host';
+          broadcastData = { byHostId: this.currentUserId };
+        } else if (event === 'live_poll_started') {
+          broadcastEvent = 'new_live_poll';
+          broadcastData = payload?.pollData ?? payload;
+        } else if (event === 'whiteboard_draw') {
+          broadcastEvent = 'whiteboard_stroke';
+          broadcastData = { userId: this.currentUserId, strokeData: payload?.strokeData ?? payload };
+        }
+
         this.broadcastChannel.postMessage({
-          event,
-          data: payload,
+          event: broadcastEvent,
+          data: broadcastData,
           senderClientId: this.clientId,
+          eventId,
         });
       } catch (err) {
         console.warn('BroadcastChannel error:', err);
       }
     }
-
-    // 3. Handle local reactive echoes for the current tab
-    this.simulateLocalEventResponses(event, payload);
   }
 
   public on(event: string, callback: EventHandler) {
@@ -133,7 +296,7 @@ class SocketService {
     }
   }
 
-  private triggerLocal(event: string, data: any) {
+  public triggerLocal(event: string, data: any) {
     const handlers = this.listeners.get(event);
     if (handlers) {
       handlers.forEach((h) => {
@@ -146,27 +309,27 @@ class SocketService {
     }
   }
 
-  private simulateLocalEventResponses(event: string, payload: any) {
-    // When raising hand in single-tab mode, echo back so the local indicator reflects state
-    if (event === 'raise_hand') {
-      setTimeout(() => {
-        this.triggerLocal('hand_raised', {
-          userId: payload?.userId || 'my-user',
-          userName: payload?.userName || 'Bạn',
-          raisedAt: new Date().toLocaleTimeString('vi-VN'),
-        });
-      }, 50);
-    }
+  // Helper typing methods for clear payload adherence
+  public joinChannel(channelId: string) {
+    this.emit('join_channel', channelId);
+  }
 
-    // If host mutes all in local mode
-    if (event === 'mute_all_forced') {
-      // do not echo to self if self is host, handled in cross-tab
-    }
+  public leaveChannel(channelId: string) {
+    this.emit('leave_channel', channelId);
+  }
 
-    // Whiteboard local stroke sync
-    if (event === 'whiteboard_draw') {
-      // Local draw already handled on mouse move
-    }
+  public joinConversation(conversationId: string) {
+    this.emit('join_conversation', conversationId);
+  }
+
+  public joinMeeting(meetingId: string) {
+    // Crucial: Payload must be string meetingId
+    this.emit('join_meeting', meetingId);
+  }
+
+  public leaveMeeting(meetingId: string) {
+    // Crucial: Payload must be string meetingId
+    this.emit('leave_meeting', meetingId);
   }
 }
 
