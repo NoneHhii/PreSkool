@@ -1,7 +1,14 @@
 import axios from 'axios';
 
+const getBaseURL = () => {
+  if (import.meta.env.DEV) {
+    return '/api';
+  }
+  return import.meta.env.VITE_API_URL || 'https://pre-skool-be.vercel.app/api';
+};
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'https://pre-skool-be.vercel.app/api',
+  baseURL: getBaseURL(),
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',

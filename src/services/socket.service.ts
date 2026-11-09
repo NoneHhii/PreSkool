@@ -39,7 +39,7 @@ export const getSocketUrl = (): string => {
     return 'http://localhost:8000';
   }
 
-  return 'https://preskool-socket.onrender.com';
+  return 'https://preskool-be.onrender.com';
 };
 
 class SocketService {
