@@ -103,13 +103,21 @@ export const TeacherOverview: React.FC<TeacherOverviewProps> = ({ onNavigateTab,
             <h4 className="mt-1 text-sm font-bold text-gray-900">Điểm Danh Lớp Học</h4>
             <p className="mt-1 text-xs text-gray-500">Chấm điểm danh sinh viên các ca dạy hôm nay.</p>
           </div>
-          <button
-            onClick={() => onNavigateTab('attendance')}
-            className="mt-3 inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition cursor-pointer"
-          >
-            <ClipboardCheck className="h-4 w-4" />
-            <span>Mở Trang Điểm Danh</span>
-          </button>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={() => onNavigateTab('attendance')}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 transition cursor-pointer"
+            >
+              <ClipboardCheck className="h-3.5 w-3.5" />
+              <span>Điểm Danh</span>
+            </button>
+            <button
+              onClick={() => onNavigateTab('lms')}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-100 transition cursor-pointer"
+            >
+              <span>Vào LMS 2.0</span>
+            </button>
+          </div>
         </div>
       </div>
 

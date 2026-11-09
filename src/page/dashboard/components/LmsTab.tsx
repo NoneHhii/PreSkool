@@ -98,9 +98,14 @@ export default function LmsTab({ user }: { user: any }) {
       if (list.length > 0) {
         setSelectedClassId(list[0].id);
         setSelectedClassName(`${list[0].code} - ${list[0].course?.name || 'Lớp Học Phần'}`);
+      } else {
+        setSelectedClassId('class-demo');
+        setSelectedClassName('SE101.N11 - Lập trình RESTful API & Backend');
       }
     } catch (err) {
       console.warn('Could not load classes list for LMS:', err);
+      setSelectedClassId('class-demo');
+      setSelectedClassName('SE101.N11 - Lập trình RESTful API & Backend');
     }
   };
 
@@ -233,6 +238,7 @@ export default function LmsTab({ user }: { user: any }) {
       <div>
         {activeSubTab === 'space' && (
           <LmsCourseSpace
+            key={selectedClassId}
             classId={selectedClassId}
             classNameTitle={selectedClassName}
             user={user}
@@ -243,6 +249,7 @@ export default function LmsTab({ user }: { user: any }) {
 
         {activeSubTab === 'assignments' && (
           <LmsAssignments
+            key={selectedClassId}
             classId={selectedClassId}
             user={user}
             assignments={assignments}
@@ -252,6 +259,7 @@ export default function LmsTab({ user }: { user: any }) {
 
         {activeSubTab === 'quizzes' && (
           <LmsQuizzes
+            key={selectedClassId}
             classId={selectedClassId}
             user={user}
           />
@@ -259,6 +267,7 @@ export default function LmsTab({ user }: { user: any }) {
 
         {activeSubTab === 'discussions' && (
           <LmsDiscussions
+            key={selectedClassId}
             classId={selectedClassId}
             user={user}
           />
@@ -266,6 +275,7 @@ export default function LmsTab({ user }: { user: any }) {
 
         {activeSubTab === 'gradebook' && (
           <LmsGradebook
+            key={selectedClassId}
             classId={selectedClassId}
             user={user}
           />
@@ -273,6 +283,7 @@ export default function LmsTab({ user }: { user: any }) {
 
         {activeSubTab === 'calendar' && (
           <LmsCalendarAnnouncements
+            key={selectedClassId}
             classId={selectedClassId}
             user={user}
           />
