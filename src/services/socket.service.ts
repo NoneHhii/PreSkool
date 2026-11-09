@@ -4,6 +4,7 @@
 // ==========================================
 
 import { io, Socket } from 'socket.io-client';
+import api from './api';
 
 type EventHandler = (data: any) => void;
 
@@ -23,20 +24,14 @@ export const getSocketUrl = (): string => {
 
   if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
 
-  if (import.meta.env.VITE_API_URL) {
+  const apiBase = api.defaults.baseURL || import.meta.env.VITE_API_URL || '';
+  if (apiBase.startsWith('http')) {
     try {
-      const url = new URL(import.meta.env.VITE_API_URL);
+      const url = new URL(apiBase);
       return `${url.protocol}//${url.host}`;
     } catch {
       // ignore
     }
-  }
-
-  if (
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ) {
-    return 'http://localhost:8000';
   }
 
   return 'https://pre-skool-be.vercel.app';
@@ -52,11 +47,13 @@ class SocketService {
   private broadcastChannel: BroadcastChannel | null = null;
   private processedEventIds = new Set<string>();
 
+  public mode: 'SOCKET_IO' | 'BROADCAST_MESH' | 'DISCONNECTED' = 'DISCONNECTED';
+
   // Unique client ID for this browser tab session
   public readonly clientId: string = `peer_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36).slice(-4)}`;
 
   public get connected(): boolean {
-    return this.isConnected && (this.socket?.connected ?? false);
+    return (this.socket?.connected ?? false) || (this.isConnected && this.mode === 'BROADCAST_MESH');
   }
 
   public get socketInstance(): Socket | null {
@@ -93,7 +90,7 @@ class SocketService {
     }
   }
 
-  public connect(token?: string) {
+  public async connect(token?: string) {
     const nextToken = token || localStorage.getItem('token') || '';
     if (this.socket?.connected && this.token === nextToken) {
       return;
@@ -130,6 +127,15 @@ class SocketService {
       this.socket = null;
     }
 
+    // 1. If pointing to Vercel (or Vercel-hosted API): Vercel Serverless does not support persistent WebSockets
+    if (this.socketUrl.includes('vercel.app')) {
+      this.isConnected = true;
+      this.mode = 'BROADCAST_MESH';
+      this.triggerLocal('connect', { connected: true, mode: 'BROADCAST_MESH' });
+      return;
+    }
+
+    // 2. Connect Socket.IO if custom host/port is explicitly provided
     try {
       this.socket = io(this.socketUrl, {
         auth: { token: this.token },
@@ -137,7 +143,7 @@ class SocketService {
         transports: ['websocket', 'polling'],
         autoConnect: false,
         reconnection: true,
-        reconnectionAttempts: 15,
+        reconnectionAttempts: 3,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         timeout: 10000,
@@ -145,16 +151,19 @@ class SocketService {
 
       this.socket.on('connect', () => {
         this.isConnected = true;
-        this.triggerLocal('connect', { connected: true, socketId: this.socket?.id });
+        this.mode = 'SOCKET_IO';
+        this.triggerLocal('connect', { connected: true, socketId: this.socket?.id, mode: 'SOCKET_IO' });
       });
 
       this.socket.on('disconnect', (reason) => {
         this.isConnected = false;
+        this.mode = 'DISCONNECTED';
         this.triggerLocal('disconnect', { reason });
       });
 
       this.socket.on('connect_error', (error) => {
         this.isConnected = false;
+        this.mode = 'DISCONNECTED';
         this.triggerLocal('connect_error', error);
       });
 
@@ -185,6 +194,7 @@ class SocketService {
       this.socket.connect();
     } catch (err) {
       this.isConnected = false;
+      this.mode = 'DISCONNECTED';
       this.triggerLocal('connect_error', err);
     }
   }
@@ -199,6 +209,7 @@ class SocketService {
       this.socket = null;
     }
     this.isConnected = false;
+    this.mode = 'DISCONNECTED';
     this.triggerLocal('disconnect', {});
   }
 

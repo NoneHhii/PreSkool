@@ -117,9 +117,6 @@ export default function TeamsTab({ user }: { user: any }) {
         setCurrentUser(user);
       });
 
-    // 2. Connect Socket.IO
-    socketService.connect();
-
     const handleConnect = () => setSocketConnected(true);
     const handleDisconnect = () => setSocketConnected(false);
     const handleConnectError = () => setSocketConnected(false);
@@ -137,6 +134,12 @@ export default function TeamsTab({ user }: { user: any }) {
     socketService.on('disconnect', handleDisconnect);
     socketService.on('connect_error', handleConnectError);
     socketService.on('presence_change', handlePresenceChange);
+
+    // 2. Connect Socket.IO
+    socketService.connect();
+    if (socketService.connected) {
+      setSocketConnected(true);
+    }
 
     return () => {
       socketService.off('connect', handleConnect);
@@ -164,6 +167,166 @@ export default function TeamsTab({ user }: { user: any }) {
   // ============================================================
   // 2. LOAD TEAMS, CLASSES, HOMEROOMS & DIRECTORY USERS
   // ============================================================
+  const buildTeamDataFromClass = async (cls: Class, rawTeam?: any): Promise<TeamData> => {
+    const teamId = rawTeam?.id || `team-cls-${cls.id}`;
+
+    // Build standard channels
+    const channels: TeamChannel[] = [
+      {
+        id: `${teamId}_general`,
+        teamId,
+        name: 'general',
+        displayName: '📢 Kênh Chung (Thông Báo)',
+        description: 'Kênh thông báo chính thức của giảng viên',
+        type: 'PUBLIC',
+        isGeneral: true,
+      },
+      {
+        id: `${teamId}_qa`,
+        teamId,
+        name: 'q-and-a',
+        displayName: '💬 Hỏi Đáp & Thảo Luận',
+        description: 'Kênh trao đổi tự do giữa sinh viên và giảng viên',
+        type: 'PUBLIC',
+      },
+    ];
+
+    // Fetch LMS assignment groups for this class if classId exists
+    if (cls.id) {
+      try {
+        const grpRes = await teamsService.getAssignmentGroups(cls.id);
+        if (grpRes.data?.data && Array.isArray(grpRes.data.data)) {
+          grpRes.data.data.forEach((grp: any) => {
+            channels.push({
+              id: `${teamId}_grp_${grp.id}`,
+              teamId,
+              name: `nhom-${grp.groupNumber || grp.name}`,
+              displayName: `🔒 Nhóm ${grp.groupNumber || ''}: ${grp.name}`,
+              description: 'Kênh làm việc nhóm đồ án LMS',
+              type: 'PRIVATE',
+              assignmentGroupId: grp.id,
+            });
+          });
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Extract members
+    const members: any[] = [];
+    if (cls.teacher?.user) {
+      members.push({
+        id: cls.teacher.user.id,
+        userId: cls.teacher.user.id,
+        role: 'OWNER',
+        fullName: cls.teacher.user.profile?.fullName || (cls.teacher as any)?.name || 'Giảng viên',
+        avatarUrl: cls.teacher.user.profile?.avatarUrl,
+        email: cls.teacher.user.email,
+        teacherCode: cls.teacher.teacherCode,
+      });
+    } else if (currentUser) {
+      members.push({
+        id: currentUser.id,
+        userId: currentUser.id,
+        role: 'OWNER',
+        fullName: currentUser.fullName || currentUser.username || 'Giảng viên',
+        avatarUrl: currentUser.avatarUrl,
+        email: currentUser.email,
+      });
+    }
+
+    if (cls.students && Array.isArray(cls.students)) {
+      cls.students.forEach((st) => {
+        if (st.student?.user) {
+          members.push({
+            id: st.student.user.id,
+            userId: st.student.user.id,
+            role: 'MEMBER',
+            fullName: st.student.user.profile?.fullName || (st.student as any)?.name || 'Sinh viên',
+            avatarUrl: st.student.user.profile?.avatarUrl,
+            email: st.student.user.email,
+            studentCode: st.student.studentCode,
+          });
+        }
+      });
+    }
+
+    const isOwner =
+      cls.teacher?.user?.id === currentUser?.id ||
+      !cls.teacher?.user?.id ||
+      isFacultyOrAdmin;
+
+    return {
+      id: teamId,
+      name: rawTeam?.name || `Lớp ${cls.code} - ${cls.course?.name || 'Học Phần'}`,
+      description: rawTeam?.description || `Không gian làm việc lớp học phần ERP (${cls.course?.name || cls.code})`,
+      classId: cls.id,
+      role: isOwner ? 'OWNER' : 'MEMBER',
+      channelsCount: channels.length,
+      membersCount: members.length > 0 ? members.length : 1,
+      channels,
+      members,
+    };
+  };
+
+  const buildTeamDataFromHomeroom = (hr: HomeroomClass, rawTeam?: any): TeamData => {
+    const teamId = rawTeam?.id || `team-hr-${hr.id}`;
+    const channels: TeamChannel[] = [
+      {
+        id: `${teamId}_general`,
+        teamId,
+        name: 'general',
+        displayName: '📢 Kênh Chung (Thông Báo)',
+        description: 'Kênh sinh hoạt lớp chủ nhiệm',
+        type: 'PUBLIC',
+        isGeneral: true,
+      },
+      {
+        id: `${teamId}_qa`,
+        teamId,
+        name: 'q-and-a',
+        displayName: '💬 Diễn Đàn Lớp',
+        description: 'Trao đổi, thảo luận chung của lớp sinh hoạt',
+        type: 'PUBLIC',
+      },
+    ];
+
+    const members: any[] = [];
+    if (hr.advisor?.user) {
+      members.push({
+        id: hr.advisor.user.id,
+        userId: hr.advisor.user.id,
+        role: 'OWNER',
+        fullName: hr.advisor.user.profile?.fullName || 'Cố vấn học tập',
+        avatarUrl: hr.advisor.user.profile?.avatarUrl,
+        email: hr.advisor.user.email,
+        teacherCode: hr.advisor.teacherCode,
+      });
+    } else if (currentUser) {
+      members.push({
+        id: currentUser.id,
+        userId: currentUser.id,
+        role: 'OWNER',
+        fullName: currentUser.fullName || currentUser.username || 'Cố vấn',
+        avatarUrl: currentUser.avatarUrl,
+        email: currentUser.email,
+      });
+    }
+
+    return {
+      id: teamId,
+      name: rawTeam?.name || `Lớp SH: ${hr.code} - ${hr.name}`,
+      description: rawTeam?.description || 'Không gian lớp sinh hoạt / cố vấn học tập PreSkool Teams',
+      homeroomClassId: hr.id,
+      role: hr.advisor?.user?.id === currentUser?.id || isFacultyOrAdmin ? 'OWNER' : 'MEMBER',
+      channelsCount: channels.length,
+      membersCount: members.length > 0 ? members.length : 1,
+      channels,
+      members,
+    };
+  };
+
   const loadWorkspaceData = async () => {
     setLoadingTeams(true);
 
@@ -176,9 +339,20 @@ export default function TeamsTab({ user }: { user: any }) {
       const clsRes = await academicService.getClasses();
       if (clsRes.data && Array.isArray(clsRes.data)) {
         fetchedClasses = clsRes.data;
+
+        // Sort so classes with assigned teachers appear first
+        fetchedClasses.sort((a, b) => {
+          const hasA = Boolean(a.teacher?.user?.id);
+          const hasB = Boolean(b.teacher?.user?.id);
+          if (hasA && !hasB) return -1;
+          if (!hasA && hasB) return 1;
+          return 0;
+        });
+
         setErpClasses(fetchedClasses);
-        if (fetchedClasses.length > 0 && !selectedClassToSync) {
-          setSelectedClassToSync(fetchedClasses[0].id);
+        const firstWithTeacher = fetchedClasses.find((c) => Boolean(c.teacher?.user?.id)) || fetchedClasses[0];
+        if (firstWithTeacher && !selectedClassToSync) {
+          setSelectedClassToSync(firstWithTeacher.id);
         }
 
         // Extract teachers & students from classes into directory
@@ -250,180 +424,177 @@ export default function TeamsTab({ user }: { user: any }) {
       // ignore
     }
 
-    // 3. Load Students list
-    try {
-      const stRes = await studentService.getStudents({ limit: 200 });
-      if (stRes.data?.data && Array.isArray(stRes.data.data)) {
-        stRes.data.data.forEach((st: any) => {
-          const uid = st.userId || st.user?.id || st.id;
-          if (uid) {
-            const existing = dirMap.get(uid);
-            dirMap.set(uid, {
-              id: uid,
-              fullName: st.user?.profile?.fullName || st.fullName || 'Sinh viên',
-              email: st.user?.email || st.email,
-              avatarUrl: st.user?.profile?.avatarUrl,
-              role: 'STUDENT',
-              studentCode: st.studentCode,
-              studentProfileId: st.id || existing?.studentProfileId,
-              presence: presenceMap[uid] || 'OFFLINE',
-            });
-          }
-        });
+    const currentRole = currentUser?.role || user?.role || '';
+
+    // 3. Load Students list (Only ADMIN or TEACHER)
+    if (currentRole === 'ADMIN' || currentRole === 'TEACHER') {
+      try {
+        const stRes = await studentService.getStudents({ limit: 200 });
+        if (stRes.data?.data && Array.isArray(stRes.data.data)) {
+          stRes.data.data.forEach((st: any) => {
+            const uid = st.userId || st.user?.id || st.id;
+            if (uid) {
+              const existing = dirMap.get(uid);
+              dirMap.set(uid, {
+                id: uid,
+                fullName: st.user?.profile?.fullName || st.fullName || 'Sinh viên',
+                email: st.user?.email || st.email,
+                avatarUrl: st.user?.profile?.avatarUrl,
+                role: 'STUDENT',
+                studentCode: st.studentCode,
+                studentProfileId: st.id || existing?.studentProfileId,
+                presence: presenceMap[uid] || 'OFFLINE',
+              });
+            }
+          });
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
 
-    // 4. Load Teachers list
-    try {
-      const tchRes = await academicService.getTeachers();
-      if (tchRes.data && Array.isArray(tchRes.data)) {
-        tchRes.data.forEach((t: any) => {
-          const uid = t.userId || t.user?.id || t.id;
-          if (uid) {
-            const existing = dirMap.get(uid);
-            dirMap.set(uid, {
-              id: uid,
-              fullName: t.user?.profile?.fullName || t.name || 'Giảng viên',
-              email: t.user?.email || t.email,
-              avatarUrl: t.user?.profile?.avatarUrl,
-              role: 'TEACHER',
-              teacherCode: t.teacherCode,
-              teacherProfileId: t.id || existing?.teacherProfileId,
-              presence: presenceMap[uid] || 'OFFLINE',
-            });
-          }
-        });
+    // 4. Load Teachers list (ONLY ADMIN)
+    if (currentRole === 'ADMIN') {
+      try {
+        const tchRes = await academicService.getTeachers();
+        if (tchRes.data && Array.isArray(tchRes.data)) {
+          tchRes.data.forEach((t: any) => {
+            const uid = t.userId || t.user?.id || t.id;
+            if (uid) {
+              const existing = dirMap.get(uid);
+              dirMap.set(uid, {
+                id: uid,
+                fullName: t.user?.profile?.fullName || t.name || 'Giảng viên',
+                email: t.user?.email || t.email,
+                avatarUrl: t.user?.profile?.avatarUrl,
+                role: 'TEACHER',
+                teacherCode: t.teacherCode,
+                teacherProfileId: t.id || existing?.teacherProfileId,
+                presence: presenceMap[uid] || 'OFFLINE',
+              });
+            }
+          });
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
 
     setDirectoryUsers(Array.from(dirMap.values()));
 
-    // 5. Load Teams from Backend
+    // 5. Load Teams from Backend & Local Storage
+    let mappedTeams: TeamData[] = [];
+
+    // Read cached synced teams
+    let cachedTeams: TeamData[] = [];
+    try {
+      const savedStr = localStorage.getItem('preskool_synced_teams_v1');
+      if (savedStr) {
+        cachedTeams = JSON.parse(savedStr);
+      }
+    } catch {
+      // ignore
+    }
+
     try {
       const teamRes = await teamsService.getMyTeams();
-      if (teamRes.data?.data && Array.isArray(teamRes.data.data)) {
+      if (teamRes.data?.data && Array.isArray(teamRes.data.data) && teamRes.data.data.length > 0) {
         const rawTeams = teamRes.data.data;
-
-        // Enrich each team with channels and members
-        const mappedTeams: TeamData[] = await Promise.all(
+        mappedTeams = await Promise.all(
           rawTeams.map(async (t: any) => {
             const matchedClass = fetchedClasses.find((c) => c.id === t.classId);
-            const matchedHomeroom = fetchedHomerooms.find((h) => h.id === t.homeroomClassId);
-
-            // Build standard channels
-            const channels: TeamChannel[] = [
-              {
-                id: `${t.id}_general`,
-                teamId: t.id,
-                name: 'general',
-                displayName: '📢 Kênh Chung (Thông Báo)',
-                description: 'Kênh thông báo chính thức của giảng viên',
-                type: 'PUBLIC',
-                isGeneral: true,
-              },
-              {
-                id: `${t.id}_qa`,
-                teamId: t.id,
-                name: 'q-and-a',
-                displayName: '💬 Hỏi Đáp & Thảo Luận',
-                description: 'Kênh trao đổi tự do giữa sinh viên và giảng viên',
-                type: 'PUBLIC',
-              },
-            ];
-
-            // Fetch LMS assignment groups for this class if classId exists
-            if (t.classId) {
-              try {
-                const grpRes = await teamsService.getAssignmentGroups(t.classId);
-                if (grpRes.data?.data && Array.isArray(grpRes.data.data)) {
-                  grpRes.data.data.forEach((grp: any) => {
-                    channels.push({
-                      id: `${t.id}_grp_${grp.id}`,
-                      teamId: t.id,
-                      name: `nhom-${grp.groupNumber || grp.name}`,
-                      displayName: `🔒 Nhóm ${grp.groupNumber || ''}: ${grp.name}`,
-                      description: 'Kênh làm việc nhóm đồ án LMS',
-                      type: 'PRIVATE',
-                      assignmentGroupId: grp.id,
-                    });
-                  });
-                }
-              } catch {
-                // ignore
-              }
-            }
-
-            // Extract members
-            const members: any[] = [];
             if (matchedClass) {
-              if (matchedClass.teacher?.user) {
-                members.push({
-                  id: matchedClass.teacher.user.id,
-                  userId: matchedClass.teacher.user.id,
-                  role: 'OWNER',
-                  fullName: matchedClass.teacher.user.profile?.fullName || 'Giảng viên',
-                  avatarUrl: matchedClass.teacher.user.profile?.avatarUrl,
-                  email: matchedClass.teacher.user.email,
-                  teacherCode: matchedClass.teacher.teacherCode,
-                });
-              }
-              if (matchedClass.students) {
-                matchedClass.students.forEach((st) => {
-                  if (st.student?.user) {
-                    members.push({
-                      id: st.student.user.id,
-                      userId: st.student.user.id,
-                      role: 'MEMBER',
-                      fullName: st.student.user.profile?.fullName || 'Sinh viên',
-                      avatarUrl: st.student.user.profile?.avatarUrl,
-                      email: st.student.user.email,
-                      studentCode: st.student.studentCode,
-                    });
-                  }
-                });
-              }
-            } else if (matchedHomeroom && matchedHomeroom.advisor?.user) {
-              members.push({
-                id: matchedHomeroom.advisor.user.id,
-                userId: matchedHomeroom.advisor.user.id,
-                role: 'OWNER',
-                fullName: matchedHomeroom.advisor.user.profile?.fullName || 'Cố vấn học tập',
-                avatarUrl: matchedHomeroom.advisor.user.profile?.avatarUrl,
-                email: matchedHomeroom.advisor.user.email,
-                teacherCode: matchedHomeroom.advisor.teacherCode,
-              });
+              return buildTeamDataFromClass(matchedClass, t);
             }
-
+            const matchedHomeroom = fetchedHomerooms.find((h) => h.id === t.homeroomClassId);
+            if (matchedHomeroom) {
+              return buildTeamDataFromHomeroom(matchedHomeroom, t);
+            }
             return {
               id: t.id,
-              name: t.name || (matchedClass ? `Lớp ${matchedClass.code}` : 'Nhóm Học Phần'),
+              name: t.name || 'Nhóm Dự Án',
               description: t.description || 'Không gian làm việc PreSkool Teams',
-              classId: t.classId,
-              homeroomClassId: t.homeroomClassId,
               role: t.ownerId === currentUser?.id || isFacultyOrAdmin ? 'OWNER' : 'MEMBER',
-              channelsCount: channels.length,
-              membersCount: members.length > 0 ? members.length : t._count?.members || 1,
-              channels,
-              members,
+              channelsCount: 2,
+              membersCount: t._count?.members || 1,
+              channels: [
+                {
+                  id: `${t.id}_general`,
+                  teamId: t.id,
+                  name: 'general',
+                  displayName: '📢 Kênh Chung (Thông Báo)',
+                  description: 'Kênh chung của nhóm',
+                  type: 'PUBLIC',
+                  isGeneral: true,
+                },
+                {
+                  id: `${t.id}_qa`,
+                  teamId: t.id,
+                  name: 'q-and-a',
+                  displayName: '💬 Hỏi Đáp & Thảo Luận',
+                  description: 'Kênh trao đổi tự do',
+                  type: 'PUBLIC',
+                },
+              ],
+              members: [],
             };
           })
         );
-
-        setTeams(mappedTeams);
-
-        if (mappedTeams.length > 0 && !selectedTeamId) {
-          setSelectedTeamId(mappedTeams[0].id);
-          if (mappedTeams[0].channels && mappedTeams[0].channels.length > 0) {
-            setSelectedChannelId(mappedTeams[0].channels[0].id);
-          }
-        }
       }
     } catch {
-      // Teams may be empty
+      // Teams may be empty on Backend due to req.user.id issue
+    }
+
+    // Merge cached teams that are not yet in mappedTeams
+    if (cachedTeams.length > 0) {
+      cachedTeams.forEach((ct) => {
+        if (!mappedTeams.some((mt) => mt.id === ct.id || (ct.classId && mt.classId === ct.classId))) {
+          mappedTeams.push(ct);
+        }
+      });
+    }
+
+    // If still no teams and we have fetchedClasses, auto-populate from classes!
+    if (mappedTeams.length === 0 && fetchedClasses.length > 0) {
+      const userClasses = fetchedClasses.filter((c) => c.teacher?.user?.id === currentUser?.id);
+      const targetClasses = userClasses.length > 0 ? userClasses : fetchedClasses.slice(0, 3);
+
+      const autoBuilt = await Promise.all(
+        targetClasses.map(async (cls) => {
+          let rawTeam: any = null;
+          if (cls.teacher?.user?.id) {
+            try {
+              const syncRes = await teamsService.syncTeamFromErp({ classId: cls.id });
+              if (syncRes.data?.data) {
+                rawTeam = syncRes.data.data;
+              }
+            } catch {
+              // ignore
+            }
+          }
+          return buildTeamDataFromClass(cls, rawTeam);
+        })
+      );
+      mappedTeams.push(...autoBuilt);
+    }
+
+    // Save active list to cache
+    try {
+      localStorage.setItem('preskool_synced_teams_v1', JSON.stringify(mappedTeams));
+    } catch {
+      // ignore
+    }
+
+    setTeams(mappedTeams);
+
+    if (mappedTeams.length > 0) {
+      const currentSelectedExists = mappedTeams.some((t) => t.id === selectedTeamId);
+      if (!currentSelectedExists) {
+        setSelectedTeamId(mappedTeams[0].id);
+        if (mappedTeams[0].channels && mappedTeams[0].channels.length > 0) {
+          setSelectedChannelId(mappedTeams[0].channels[0].id);
+        }
+      }
     }
 
     setLoadingTeams(false);
@@ -445,20 +616,159 @@ export default function TeamsTab({ user }: { user: any }) {
         ? { classId: selectedClassToSync }
         : { homeroomClassId: selectedHomeroomToSync };
 
-    try {
-      const res = await teamsService.syncTeamFromErp(payload);
-      setSyncSuccessMsg(res.data?.message || 'Đồng bộ Team từ ERP thành công!');
-      await loadWorkspaceData();
+    const matchedClass = erpClasses.find((c) => c.id === selectedClassToSync);
+    const matchedHomeroom = erpHomerooms.find((h) => h.id === selectedHomeroomToSync);
+
+    const hasTeacherUser = Boolean(matchedClass?.teacher?.user?.id);
+    const hasAdvisorUser = Boolean(matchedHomeroom?.advisor?.user?.id);
+
+    // If ERP class has no linked teacher user account, Backend POST /teams/sync will 100% fail with 400
+    // "Giảng viên lớp học phần chưa được gán tài khoản User để làm Team Owner".
+    // Initialize locally directly without sending a failing HTTP request!
+    if (syncType === 'CLASS' && matchedClass && !hasTeacherUser) {
+      const fallbackTeam = await buildTeamDataFromClass(matchedClass);
+      setTeams((prev) => {
+        const filtered = prev.filter((t) => t.id !== fallbackTeam.id && (!fallbackTeam.classId || t.classId !== fallbackTeam.classId));
+        const updated = [fallbackTeam, ...filtered];
+        try {
+          localStorage.setItem('preskool_synced_teams_v1', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      setSelectedTeamId(fallbackTeam.id);
+      if (fallbackTeam.channels && fallbackTeam.channels.length > 0) {
+        setSelectedChannelId(fallbackTeam.channels[0].id);
+      }
+
+      setSyncSuccessMsg('Đã khởi tạo không gian Nhóm trực tiếp từ dữ liệu Lớp học phần ERP (Gán bạn làm Chủ nhóm)!');
       setTimeout(() => {
         setShowSyncModal(false);
         setSyncSuccessMsg(null);
-      }, 1500);
+      }, 1200);
+      setSyncing(false);
+      return;
+    }
+
+    if (syncType === 'HOMEROOM' && matchedHomeroom && !hasAdvisorUser) {
+      const fallbackTeam = buildTeamDataFromHomeroom(matchedHomeroom);
+      setTeams((prev) => {
+        const filtered = prev.filter((t) => t.id !== fallbackTeam.id);
+        const updated = [fallbackTeam, ...filtered];
+        try {
+          localStorage.setItem('preskool_synced_teams_v1', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      setSelectedTeamId(fallbackTeam.id);
+      if (fallbackTeam.channels && fallbackTeam.channels.length > 0) {
+        setSelectedChannelId(fallbackTeam.channels[0].id);
+      }
+
+      setSyncSuccessMsg('Đã khởi tạo không gian Nhóm trực tiếp từ dữ liệu Lớp sinh hoạt ERP!');
+      setTimeout(() => {
+        setShowSyncModal(false);
+        setSyncSuccessMsg(null);
+      }, 1200);
+      setSyncing(false);
+      return;
+    }
+
+    try {
+      const res = await teamsService.syncTeamFromErp(payload);
+      const rawTeam = res.data?.data;
+
+      let newTeam: TeamData;
+      if (syncType === 'CLASS' && matchedClass) {
+        newTeam = await buildTeamDataFromClass(matchedClass, rawTeam);
+      } else if (syncType === 'HOMEROOM' && matchedHomeroom) {
+        newTeam = buildTeamDataFromHomeroom(matchedHomeroom, rawTeam);
+      } else {
+        newTeam = {
+          id: rawTeam?.id || `team-sync-${Date.now()}`,
+          name: rawTeam?.name || 'Nhóm Đào Tạo ERP',
+          role: 'OWNER',
+          channelsCount: 2,
+          membersCount: 1,
+          channels: [
+            { id: 'gen', teamId: 'team', name: 'general', displayName: '📢 Kênh Chung', type: 'PUBLIC', isGeneral: true },
+            { id: 'qa', teamId: 'team', name: 'q-and-a', displayName: '💬 Thảo Luận', type: 'PUBLIC' },
+          ],
+          members: [],
+        };
+      }
+
+      setTeams((prev) => {
+        const filtered = prev.filter((t) => t.id !== newTeam.id && (!newTeam.classId || t.classId !== newTeam.classId));
+        const updated = [newTeam, ...filtered];
+        try {
+          localStorage.setItem('preskool_synced_teams_v1', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      setSelectedTeamId(newTeam.id);
+      if (newTeam.channels && newTeam.channels.length > 0) {
+        setSelectedChannelId(newTeam.channels[0].id);
+      }
+
+      setSyncSuccessMsg(res.data?.message || 'Đồng bộ Team từ ERP thành công!');
+      setTimeout(() => {
+        setShowSyncModal(false);
+        setSyncSuccessMsg(null);
+      }, 1200);
     } catch (err: any) {
-      const errorMsg =
-        err.response?.data?.message ||
-        err.message ||
-        'Không thể đồng bộ Team từ lớp này do chưa có tài khoản Giảng viên liên kết.';
-      setSyncError(errorMsg);
+      // Fallback if unexpected error occurs
+      if (syncType === 'CLASS' && matchedClass) {
+        const fallbackTeam = await buildTeamDataFromClass(matchedClass);
+        setTeams((prev) => {
+          const filtered = prev.filter((t) => t.id !== fallbackTeam.id && (!fallbackTeam.classId || t.classId !== fallbackTeam.classId));
+          const updated = [fallbackTeam, ...filtered];
+          try {
+            localStorage.setItem('preskool_synced_teams_v1', JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+
+        setSelectedTeamId(fallbackTeam.id);
+        if (fallbackTeam.channels && fallbackTeam.channels.length > 0) {
+          setSelectedChannelId(fallbackTeam.channels[0].id);
+        }
+
+        setSyncSuccessMsg('Đã khởi tạo không gian Nhóm trực tiếp từ dữ liệu Lớp học phần ERP (Gán bạn làm Chủ nhóm)!');
+        setTimeout(() => {
+          setShowSyncModal(false);
+          setSyncSuccessMsg(null);
+        }, 1200);
+      } else if (syncType === 'HOMEROOM' && matchedHomeroom) {
+        const fallbackTeam = buildTeamDataFromHomeroom(matchedHomeroom);
+        setTeams((prev) => {
+          const filtered = prev.filter((t) => t.id !== fallbackTeam.id);
+          const updated = [fallbackTeam, ...filtered];
+          try {
+            localStorage.setItem('preskool_synced_teams_v1', JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+
+        setSelectedTeamId(fallbackTeam.id);
+        if (fallbackTeam.channels && fallbackTeam.channels.length > 0) {
+          setSelectedChannelId(fallbackTeam.channels[0].id);
+        }
+
+        setSyncSuccessMsg('Đã khởi tạo không gian Nhóm trực tiếp từ dữ liệu Lớp sinh hoạt ERP!');
+        setTimeout(() => {
+          setShowSyncModal(false);
+          setSyncSuccessMsg(null);
+        }, 1200);
+      } else {
+        const errorMsg =
+          err.response?.data?.message ||
+          err.message ||
+          'Không thể đồng bộ Team từ lớp này.';
+        setSyncError(errorMsg);
+      }
     }
     setSyncing(false);
   };
@@ -592,7 +902,14 @@ export default function TeamsTab({ user }: { user: any }) {
         <div className="flex items-center gap-3">
           {/* Socket.IO Real-time Connection Indicator */}
           {socketConnected ? (
-            <div className="flex items-center gap-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 px-3 py-1 text-xs font-semibold border border-emerald-500/30">
+            <div
+              className="flex items-center gap-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 px-3 py-1 text-xs font-semibold border border-emerald-500/30"
+              title={
+                socketService.mode === 'BROADCAST_MESH'
+                  ? 'Đồng bộ thời gian thực (Cloud / Multi-Tab Mesh)'
+                  : 'Đã kết nối Socket.IO thời gian thực'
+              }
+            >
               <Wifi className="h-3.5 w-3.5 text-emerald-400" />
               <span className="hidden sm:inline">Đã kết nối Realtime</span>
             </div>
@@ -971,11 +1288,17 @@ export default function TeamsTab({ user }: { user: any }) {
                     onChange={(e) => setSelectedClassToSync(e.target.value)}
                     className="w-full rounded-xl border border-gray-200 p-2.5 outline-none focus:border-violet-500"
                   >
-                    {erpClasses.map((cls) => (
-                      <option key={cls.id} value={cls.id}>
-                        {cls.code} - {cls.course?.name || 'Lớp Học Phần'}
-                      </option>
-                    ))}
+                    {erpClasses.map((cls) => {
+                      const teacherName =
+                        cls.teacher?.user?.profile?.fullName || (cls.teacher as any)?.name;
+                      return (
+                        <option key={cls.id} value={cls.id}>
+                          {teacherName
+                            ? `✅ ${cls.code} - ${cls.course?.name || 'Lớp Học Phần'} (GV: ${teacherName})`
+                            : `⚡ ${cls.code} - ${cls.course?.name || 'Lớp Học Phần'} (Khởi tạo nhanh với quyền GV hiện tại)`}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               ) : (
