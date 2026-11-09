@@ -23,7 +23,7 @@ export const getSocketUrl = (): string => {
 
   if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
 
-  const apiBase = api.defaults.baseURL || import.meta.env.VITE_API_URL || '';
+  const apiBase = import.meta.env.VITE_API_URL || '';
   if (apiBase.startsWith('http')) {
     try {
       const url = new URL(apiBase);
