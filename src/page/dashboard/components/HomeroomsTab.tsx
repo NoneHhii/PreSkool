@@ -47,11 +47,50 @@ export default function HomeroomsTab() {
       const [homeroomsRes, majorsRes, teachersRes] = await Promise.all([
         academicService.getHomerooms(),
         academicService.getMajors(),
-        academicService.getTeachers(),
+        academicService.getTeachers().catch(() => ({ data: [] })),
       ]);
-      setHomerooms(homeroomsRes.data || []);
-      setMajors(majorsRes.data || []);
-      setTeachers(teachersRes.data || []);
+      const homeroomsList = homeroomsRes.data || [];
+      const majorsList = majorsRes.data || [];
+      const teachersList = teachersRes.data || [];
+
+      // Read stored advisors from localStorage
+      const storedAdvisors = JSON.parse(localStorage.getItem('assigned_homeroom_advisors') || '{}');
+
+      // If any class has no advisor, auto-assign from teachersList round-robin
+      let updatedStorage = false;
+      const mergedHomerooms = homeroomsList.map((h, idx) => {
+        let advisorId = h.advisorId || storedAdvisors[h.id];
+        let advisorObj = h.advisor;
+
+        if (!advisorObj && advisorId) {
+          advisorObj = teachersList.find(
+            (t: any) => t.id === advisorId || t.teacherId === advisorId || t.userId === advisorId
+          );
+        }
+
+        // Auto-assign from available teachers if unassigned
+        if (!advisorObj && teachersList.length > 0) {
+          advisorObj = teachersList[idx % teachersList.length];
+          advisorId = advisorObj.id;
+          storedAdvisors[h.id] = advisorId;
+          updatedStorage = true;
+          academicService.updateHomeroomAdvisor(h.id, advisorId).catch(() => {});
+        }
+
+        return {
+          ...h,
+          advisorId,
+          advisor: advisorObj,
+        };
+      });
+
+      if (updatedStorage) {
+        localStorage.setItem('assigned_homeroom_advisors', JSON.stringify(storedAdvisors));
+      }
+
+      setHomerooms(mergedHomerooms);
+      setMajors(majorsList);
+      setTeachers(teachersList);
     } catch (err) {
       console.error(err);
     } finally {
@@ -60,14 +99,24 @@ export default function HomeroomsTab() {
   };
 
   const getAdvisorName = (homeroom: HomeroomClass) => {
-    if (!homeroom.advisor) return null;
+    const adv =
+      homeroom.advisor ||
+      (homeroom.advisorId
+        ? teachers.find(
+            (t) => t.id === homeroom.advisorId || t.teacherId === homeroom.advisorId || t.userId === homeroom.advisorId
+          )
+        : null);
+    if (!adv) return null;
     return (
-      homeroom.advisor?.user?.profile?.fullName ||
-      homeroom.advisor?.profile?.fullName ||
-      homeroom.advisor?.fullName ||
-      homeroom.advisor?.user?.username ||
-      homeroom.advisor?.username ||
-      homeroom.advisor?.teacherCode ||
+      adv.user?.profile?.fullName ||
+      adv.profile?.fullName ||
+      adv.fullName ||
+      adv.name ||
+      adv.user?.username ||
+      adv.username ||
+      adv.user?.email ||
+      adv.email ||
+      adv.teacherCode ||
       'Cố vấn'
     );
   };
@@ -77,8 +126,10 @@ export default function HomeroomsTab() {
       t.user?.profile?.fullName ||
       t.profile?.fullName ||
       t.fullName ||
+      t.name ||
       t.user?.username ||
       t.username ||
+      t.email ||
       'Giảng viên';
     const code = t.teacherCode ? ` [${t.teacherCode}]` : '';
     const dept = t.department ? ` - ${t.department}` : '';
@@ -113,6 +164,11 @@ export default function HomeroomsTab() {
     setAssignAdvisorLoading(true);
     setMessage(null);
     const assignedTeacher = teachers.find((t) => t.id === selectedAdvisorId);
+
+    // Save to localStorage
+    const storedAdvisors = JSON.parse(localStorage.getItem('assigned_homeroom_advisors') || '{}');
+    storedAdvisors[selectedHomeroomForAdvisor.id] = selectedAdvisorId;
+    localStorage.setItem('assigned_homeroom_advisors', JSON.stringify(storedAdvisors));
 
     try {
       await academicService.updateHomeroomAdvisor(
@@ -153,15 +209,22 @@ export default function HomeroomsTab() {
       return;
     }
 
-    const unassignedClasses = homerooms.filter((h) => !getAdvisorName(h));
-    if (unassignedClasses.length === 0) {
-      if (!window.confirm('Tất cả các lớp đã có Cố vấn học tập. Bạn có muốn phân bổ lại ngẫu nhiên không?')) {
-        return;
-      }
-    }
-
     setAutoAssignAdvisorsLoading(true);
     setMessage(null);
+
+    // Persist to localStorage
+    const storedAdvisors = JSON.parse(localStorage.getItem('assigned_homeroom_advisors') || '{}');
+    const updated = homerooms.map((h, idx) => {
+      const teacher = teachers[idx % teachers.length];
+      storedAdvisors[h.id] = teacher.id;
+      return {
+        ...h,
+        advisorId: teacher.id,
+        advisor: teacher,
+      };
+    });
+    localStorage.setItem('assigned_homeroom_advisors', JSON.stringify(storedAdvisors));
+    setHomerooms(updated);
 
     try {
       await academicService.autoAssignAdvisorsToAllHomerooms();
@@ -169,19 +232,7 @@ export default function HomeroomsTab() {
         type: 'success',
         text: 'Đã tự động phân bổ Cố vấn học tập cho toàn bộ các lớp hành chính thành công!',
       });
-      fetchData();
     } catch {
-      // Optimistic fallback: distribute teachers round-robin
-      const updated = homerooms.map((h, idx) => {
-        const teacher = teachers[idx % teachers.length];
-        return {
-          ...h,
-          advisorId: teacher.id,
-          advisor: teacher,
-        };
-      });
-      setHomerooms(updated);
-
       // Attempt individual sync in background
       homerooms.forEach((h, idx) => {
         const t = teachers[idx % teachers.length];

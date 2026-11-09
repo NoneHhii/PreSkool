@@ -148,8 +148,18 @@ export const academicService = {
     return response.data;
   },
   updateClassTeacher: async (classId: string, teacherId: string) => {
-    const response = await api.put<{ message: string; data: Class }>(`/v1/academic/classes/${classId}/teacher`, { teacherId });
-    return response.data;
+    try {
+      const response = await api.put<{ message: string; data: Class }>(`/v1/academic/classes/${classId}/teacher`, { teacherId });
+      return response.data;
+    } catch {
+      try {
+        const response = await api.put<{ message: string; data: Class }>(`/v1/academic/classes/${classId}`, { teacherId });
+        return response.data;
+      } catch {
+        const response = await api.patch<{ message: string; data: Class }>(`/v1/academic/classes/${classId}`, { teacherId });
+        return response.data;
+      }
+    }
   },
   autoAssignTeachersToAllClasses: async () => {
     const response = await api.post<{ message: string; data: any }>('/v1/academic/classes/auto-assign-teachers');
@@ -166,8 +176,18 @@ export const academicService = {
     return response.data;
   },
   updateHomeroomAdvisor: async (homeroomId: string, advisorId: string) => {
-    const response = await api.put<{ message: string; data: HomeroomClass }>(`/v1/academic/homerooms/${homeroomId}/advisor`, { advisorId });
-    return response.data;
+    try {
+      const response = await api.put<{ message: string; data: HomeroomClass }>(`/v1/academic/homerooms/${homeroomId}/advisor`, { advisorId });
+      return response.data;
+    } catch {
+      try {
+        const response = await api.put<{ message: string; data: HomeroomClass }>(`/v1/academic/homerooms/${homeroomId}`, { advisorId });
+        return response.data;
+      } catch {
+        const response = await api.patch<{ message: string; data: HomeroomClass }>(`/v1/academic/homerooms/${homeroomId}`, { advisorId });
+        return response.data;
+      }
+    }
   },
   autoAssignAdvisorsToAllHomerooms: async () => {
     const response = await api.post<{ message: string; data: any }>('/v1/academic/homerooms/auto-assign-advisors');

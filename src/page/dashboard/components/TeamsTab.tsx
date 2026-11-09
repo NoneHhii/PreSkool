@@ -7,6 +7,7 @@ import {
   type PresenceStatus,
 } from '../../../services/teams.service';
 import { academicService, type Class } from '../../../services/academic.service';
+import { socketService } from '../../../services/socket.service';
 import {
   Users,
   MessageSquare,
@@ -155,8 +156,23 @@ export default function TeamsTab({ user }: { user: any }) {
     }
   };
 
+  // Listen for presence change events via socket
+  useEffect(() => {
+    const handlePresenceUpdate = (data: { userId: string; status: PresenceStatus }) => {
+      if (data?.userId === user?.id) {
+        setPresence(data.status);
+      }
+    };
+
+    socketService.on('presence_change', handlePresenceUpdate);
+    return () => {
+      socketService.off('presence_change', handlePresenceUpdate);
+    };
+  }, [user]);
+
   const handlePresenceChange = async (newStatus: PresenceStatus) => {
     setPresence(newStatus);
+    socketService.emit('update_presence', { status: newStatus });
     try {
       await teamsService.updatePresence(newStatus);
     } catch {

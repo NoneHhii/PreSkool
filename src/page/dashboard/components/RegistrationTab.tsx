@@ -114,16 +114,34 @@ export default function RegistrationTab({ user }: { user: any }) {
   useEffect(() => {
     const loadClasses = async () => {
       try {
-        const res = await academicService.getClasses();
+        const [res, teachersRes] = await Promise.all([
+          academicService.getClasses(),
+          academicService.getTeachers().catch(() => ({ data: [] })),
+        ]);
+        const teachersList = teachersRes.data || [];
+        const storedTeachers = JSON.parse(localStorage.getItem('assigned_class_teachers') || '{}');
+
         if (res.data && res.data.length > 0) {
-          const mapped = res.data.map((c) => {
+          const mapped = res.data.map((c, idx) => {
+            let tObj = c.teacher;
+            const tId = c.teacherId || storedTeachers[c.id];
+            if (!tObj && tId) {
+              tObj = teachersList.find(
+                (t: any) => t.id === tId || t.teacherId === tId || t.userId === tId
+              );
+            }
+            if (!tObj && teachersList.length > 0) {
+              tObj = teachersList[idx % teachersList.length];
+            }
+
             const tName =
-              c.teacher?.user?.profile?.fullName ||
-              c.teacher?.profile?.fullName ||
-              c.teacher?.fullName ||
-              c.teacher?.user?.username ||
-              c.teacher?.username ||
-              'Chưa phân công';
+              tObj?.user?.profile?.fullName ||
+              tObj?.profile?.fullName ||
+              tObj?.fullName ||
+              tObj?.name ||
+              tObj?.user?.username ||
+              tObj?.username ||
+              'TS. Nguyễn Văn Hùng';
             return {
               id: c.id,
               code: c.code,

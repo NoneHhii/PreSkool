@@ -1,4 +1,5 @@
 import api from './api';
+import { disconnectSocket } from './socket';
 
 export interface LoginResponse {
   message: string;
@@ -23,6 +24,7 @@ export const authService = {
   },
   
   logout: () => {
+    disconnectSocket();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
   },

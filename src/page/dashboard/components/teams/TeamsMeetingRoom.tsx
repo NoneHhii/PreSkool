@@ -476,8 +476,15 @@ export const TeamsMeetingRoom: React.FC<TeamsMeetingRoomProps> = ({
     const handleHandRaised = (data: any) => {
       setHandsQueue((prev) => [
         ...prev,
-        { userId: data.userId, userName: data.userName, raisedAt: data.raisedAt },
+        { userId: data.userId, userName: data.userName, raisedAt: data.raisedAt || new Date().toLocaleTimeString() },
       ]);
+    };
+
+    // Hand lowered listener
+    const handleHandLowered = (data: any) => {
+      setHandsQueue((prev) =>
+        prev.filter((h) => h.userId !== data?.userId && h.userName !== data?.userName)
+      );
     };
 
     // Forced mute by host listener
@@ -546,6 +553,7 @@ export const TeamsMeetingRoom: React.FC<TeamsMeetingRoomProps> = ({
     socketService.on('webrtc_ice_candidate', handleIceCandidate);
     socketService.on('leave_meeting', handlePeerLeft);
     socketService.on('hand_raised', handleHandRaised);
+    socketService.on('hand_lowered', handleHandLowered);
     socketService.on('force_muted_by_host', handleForceMuted);
     socketService.on('new_live_poll', handleNewPoll);
     socketService.on('live_poll_vote', handlePollVote);
@@ -560,6 +568,7 @@ export const TeamsMeetingRoom: React.FC<TeamsMeetingRoomProps> = ({
       socketService.off('webrtc_ice_candidate', handleIceCandidate);
       socketService.off('leave_meeting', handlePeerLeft);
       socketService.off('hand_raised', handleHandRaised);
+      socketService.off('hand_lowered', handleHandLowered);
       socketService.off('force_muted_by_host', handleForceMuted);
       socketService.off('new_live_poll', handleNewPoll);
       socketService.off('live_poll_vote', handlePollVote);
@@ -647,7 +656,14 @@ export const TeamsMeetingRoom: React.FC<TeamsMeetingRoomProps> = ({
       } catch {
         // fallback
       }
-      setHandsQueue((prev) => prev.filter((h) => h.userName !== (user?.fullName || 'Bạn')));
+      socketService.emit('lower_hand', {
+        meetingId: meeting.id,
+        userId: user?.id,
+        userName: user?.fullName || 'Bạn',
+      });
+      setHandsQueue((prev) =>
+        prev.filter((h) => h.userId !== user?.id && h.userName !== (user?.fullName || 'Bạn'))
+      );
     }
   };
 

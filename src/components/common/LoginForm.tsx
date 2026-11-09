@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { InputField } from './InputField';
 // import { SocialLogin } from './SocialLogin';
 import { authService } from '../../services/auth.service';
+import { connectSocket } from '../../services/socket';
 
 export const LoginForm: React.FC = () => {
   const navigate = useNavigate();
@@ -22,6 +23,7 @@ export const LoginForm: React.FC = () => {
 
       if (response.data?.accessToken) {
         localStorage.setItem('token', response.data.accessToken);
+        connectSocket(response.data.accessToken);
         if (response.data.user) {
           localStorage.setItem('user', JSON.stringify(response.data.user));
           alert(`Login successful! Welcome ${response.data.user.role || 'User'}.`);

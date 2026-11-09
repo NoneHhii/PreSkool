@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import Avatar from '../ui/Avatar';
+import { authService } from '../../services/auth.service';
 
 interface HeaderProps {
   onToggleSidebar?: () => void;
@@ -63,8 +64,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    authService.logout();
     navigate('/', { replace: true });
   };
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { authService } from '../../services/auth.service';
 import {
   LayoutDashboard,
   Users,
@@ -51,8 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isStudent = role === 'STUDENT';
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    authService.logout();
     navigate('/', { replace: true });
   };
 

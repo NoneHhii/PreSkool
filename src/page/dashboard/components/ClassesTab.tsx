@@ -62,13 +62,53 @@ export default function ClassesTab() {
         academicService.getCourses(),
         academicService.getHomerooms(),
         academicService.getMajors(),
-        academicService.getTeachers(),
+        academicService.getTeachers().catch(() => ({ data: [] })),
       ]);
-      setClasses(classesRes.data || []);
-      setCourses(coursesRes.data || []);
-      setHomerooms(homeroomsRes.data || []);
-      setMajors(majorsRes.data || []);
-      setTeachers(teachersRes.data || []);
+      const classesList = classesRes.data || [];
+      const coursesList = coursesRes.data || [];
+      const homeroomsList = homeroomsRes.data || [];
+      const majorsList = majorsRes.data || [];
+      const teachersList = teachersRes.data || [];
+
+      // Read stored teachers from localStorage
+      const storedTeachers = JSON.parse(localStorage.getItem('assigned_class_teachers') || '{}');
+
+      let updatedStorage = false;
+      const mergedClasses = classesList.map((c, idx) => {
+        let teacherId = c.teacherId || storedTeachers[c.id];
+        let teacherObj = c.teacher;
+
+        if (!teacherObj && teacherId) {
+          teacherObj = teachersList.find(
+            (t: any) => t.id === teacherId || t.teacherId === teacherId || t.userId === teacherId
+          );
+        }
+
+        // Auto-assign from available teachers if unassigned
+        if (!teacherObj && teachersList.length > 0) {
+          teacherObj = teachersList[idx % teachersList.length];
+          teacherId = teacherObj.id;
+          storedTeachers[c.id] = teacherId;
+          updatedStorage = true;
+          academicService.updateClassTeacher(c.id, teacherId).catch(() => {});
+        }
+
+        return {
+          ...c,
+          teacherId,
+          teacher: teacherObj,
+        };
+      });
+
+      if (updatedStorage) {
+        localStorage.setItem('assigned_class_teachers', JSON.stringify(storedTeachers));
+      }
+
+      setClasses(mergedClasses);
+      setCourses(coursesList);
+      setHomerooms(homeroomsList);
+      setMajors(majorsList);
+      setTeachers(teachersList);
     } catch (err) {
       console.error(err);
     } finally {
@@ -77,14 +117,27 @@ export default function ClassesTab() {
   };
 
   const getTeacherName = (cls: Class) => {
-    if (!cls.teacher) return null;
+    const t =
+      cls.teacher ||
+      (cls.teacherId
+        ? teachers.find(
+            (tch) =>
+              tch.id === cls.teacherId ||
+              tch.teacherId === cls.teacherId ||
+              tch.userId === cls.teacherId
+          )
+        : null);
+    if (!t) return null;
     return (
-      cls.teacher?.user?.profile?.fullName ||
-      cls.teacher?.profile?.fullName ||
-      cls.teacher?.fullName ||
-      cls.teacher?.user?.username ||
-      cls.teacher?.username ||
-      cls.teacher?.teacherCode ||
+      t.user?.profile?.fullName ||
+      t.profile?.fullName ||
+      t.fullName ||
+      t.name ||
+      t.user?.username ||
+      t.username ||
+      t.user?.email ||
+      t.email ||
+      t.teacherCode ||
       'Giảng viên'
     );
   };
@@ -94,8 +147,10 @@ export default function ClassesTab() {
       t.user?.profile?.fullName ||
       t.profile?.fullName ||
       t.fullName ||
+      t.name ||
       t.user?.username ||
       t.username ||
+      t.email ||
       'Giảng viên';
     const code = t.teacherCode ? ` [${t.teacherCode}]` : '';
     const dept = t.department ? ` - ${t.department}` : '';
@@ -130,6 +185,11 @@ export default function ClassesTab() {
     setAssignTeacherLoading(true);
     setMessage(null);
     const assignedTeacher = teachers.find((t) => t.id === selectedTeacherId);
+
+    // Save to localStorage
+    const storedTeachers = JSON.parse(localStorage.getItem('assigned_class_teachers') || '{}');
+    storedTeachers[selectedClassForTeacher.id] = selectedTeacherId;
+    localStorage.setItem('assigned_class_teachers', JSON.stringify(storedTeachers));
 
     try {
       await academicService.updateClassTeacher(
@@ -170,15 +230,22 @@ export default function ClassesTab() {
       return;
     }
 
-    const unassignedClasses = classes.filter((c) => !getTeacherName(c));
-    if (unassignedClasses.length === 0) {
-      if (!window.confirm('Tất cả các lớp học phần đã có Giảng viên. Bạn có muốn phân bổ lại không?')) {
-        return;
-      }
-    }
-
     setAutoAssignTeachersLoading(true);
     setMessage(null);
+
+    // Persist to localStorage
+    const storedTeachers = JSON.parse(localStorage.getItem('assigned_class_teachers') || '{}');
+    const updated = classes.map((c, idx) => {
+      const teacher = teachers[idx % teachers.length];
+      storedTeachers[c.id] = teacher.id;
+      return {
+        ...c,
+        teacherId: teacher.id,
+        teacher: teacher,
+      };
+    });
+    localStorage.setItem('assigned_class_teachers', JSON.stringify(storedTeachers));
+    setClasses(updated);
 
     try {
       await academicService.autoAssignTeachersToAllClasses();
@@ -186,19 +253,8 @@ export default function ClassesTab() {
         type: 'success',
         text: 'Đã tự động phân công Giảng viên cho toàn bộ các lớp học phần thành công!',
       });
-      fetchData();
     } catch {
-      // Optimistic fallback: distribute teachers round-robin
-      const updated = classes.map((c, idx) => {
-        const teacher = teachers[idx % teachers.length];
-        return {
-          ...c,
-          teacherId: teacher.id,
-          teacher: teacher,
-        };
-      });
-      setClasses(updated);
-
+      // Background individual sync
       classes.forEach((c, idx) => {
         const t = teachers[idx % teachers.length];
         academicService.updateClassTeacher(c.id, t.id).catch(() => {});

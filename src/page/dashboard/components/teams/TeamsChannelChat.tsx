@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   teamsService,
   type TeamData,
@@ -96,6 +96,10 @@ export async function generateToken(payload: UserPayload) {
   const [codeLang, setCodeLang] = useState('typescript');
   const [codeBody, setCodeBody] = useState('');
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
+
+  // Typing indicators state
+  const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Files state
   const [files, setFiles] = useState<ChannelFileItem[]>([
@@ -210,16 +214,66 @@ export async function generateToken(payload: UserPayload) {
       }
     };
 
+    const handleUserTyping = (data: { channelId?: string; userId: string; userName: string; isTyping: boolean }) => {
+      if (data.channelId && data.channelId !== channel.id) return;
+      if (data.userId === (user?.id || 'current-user')) return;
+
+      setTypingUsers((prev) => {
+        const copy = { ...prev };
+        if (data.isTyping) {
+          copy[data.userId] = data.userName;
+        } else {
+          delete copy[data.userId];
+        }
+        return copy;
+      });
+    };
+
     socketService.on('new_channel_message', handleNewMessage);
+    socketService.on('user_typing', handleUserTyping);
 
     return () => {
+      socketService.emit('leave_channel', channel.id);
       socketService.off('new_channel_message', handleNewMessage);
+      socketService.off('user_typing', handleUserTyping);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
-  }, [channel.id]);
+  }, [channel.id, user]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputMessage(val);
+
+    // Emit user is typing
+    socketService.emit('user_typing', {
+      channelId: channel.id,
+      userId: user?.id || 'current-user',
+      userName: user?.fullName || user?.username || 'Bạn',
+      isTyping: true,
+    });
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socketService.emit('user_typing', {
+        channelId: channel.id,
+        userId: user?.id || 'current-user',
+        userName: user?.fullName || user?.username || 'Bạn',
+        isTyping: false,
+      });
+    }, 1500);
+  };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim() && !codeBody.trim()) return;
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    socketService.emit('user_typing', {
+      channelId: channel.id,
+      userId: user?.id || 'current-user',
+      userName: user?.fullName || user?.username || 'Bạn',
+      isTyping: false,
+    });
 
     const newMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -657,6 +711,12 @@ export async function generateToken(payload: UserPayload) {
 
             {/* Message Composer */}
             <form onSubmit={handleSendMessage} className="border-t border-gray-200 bg-white p-4">
+              {Object.keys(typingUsers).length > 0 && (
+                <div className="flex items-center gap-1.5 pb-2 text-[11px] italic text-gray-500 animate-pulse">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-violet-500"></span>
+                  <span>{Object.values(typingUsers).join(', ')} đang soạn tin nhắn...</span>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -673,7 +733,7 @@ export async function generateToken(payload: UserPayload) {
                   type="text"
                   placeholder={`Gửi tin nhắn vào #${channel.name}...`}
                   value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
+                  onChange={handleInputChange}
                   className="flex-1 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-2.5 text-xs text-gray-800 outline-none transition focus:border-violet-500 focus:bg-white"
                 />
 
