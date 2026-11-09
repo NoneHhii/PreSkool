@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   lmsService,
   type AssignmentData,
@@ -17,12 +17,15 @@ import {
   Sparkles,
   Calendar,
   Award,
+  ExternalLink,
+  Trash2,
 } from 'lucide-react';
 
 interface LmsAssignmentsProps {
   classId: string;
   user: any;
   assignments: AssignmentData[];
+  onAssignmentsChange?: (assignments: AssignmentData[]) => void;
   onRefresh?: () => void;
 }
 
@@ -30,6 +33,7 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
   classId,
   user,
   assignments: initialAssignments,
+  onAssignmentsChange,
   onRefresh,
 }) => {
   const isAdmin = user?.role === 'ADMIN';
@@ -37,49 +41,19 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
   const isStudent = user?.role === 'STUDENT';
 
   const [activeTab, setActiveTab] = useState<'assignments' | 'groups'>('assignments');
-  const [assignments, setAssignments] = useState<AssignmentData[]>(
-    initialAssignments.length > 0
-      ? initialAssignments
-      : [
-        {
-          id: 'ass-1',
-          classId,
-          title: 'Bài tập lớn: Xây dựng RESTful API Backend với NestJS',
-          description:
-            'Sinh viên thiết kế API theo kiến trúc phân tầng Clean Architecture, có xác thực JWT, kết nối PostgreSQL qua Prisma ORM và viết tài liệu Swagger.',
-          openDate: '2026-11-01T00:00:00Z',
-          deadline: '2026-11-15T23:59:59Z',
-          cutOffDate: '2026-11-18T23:59:59Z',
-          allowLate: true,
-          isGroup: true,
-          maxScore: 10,
-          rubric: [
-            { criteria: 'Thiết kế CSDL chuẩn hóa (3NF & Indexing)', maxPoints: 3 },
-            { criteria: 'Xử lý logic nghiệp vụ, bảo mật JWT & Phân quyền', maxPoints: 5 },
-            { criteria: 'Tài liệu Swagger OpenAPI & Unit Tests', maxPoints: 2 },
-          ],
-          isSubmitted: true,
-        },
-        {
-          id: 'ass-2',
-          classId,
-          title: 'Bài tập cá nhân Tuần 2: Query Optimization & Caching Redis',
-          description:
-            'Tối ưu hóa câu truy vấn SQL phức tạp, cấu hình Redis Cache cho các endpoint đọc nhiều và đo lường sự cải thiện bằng Apache Benchmark.',
-          openDate: '2026-10-25T00:00:00Z',
-          deadline: '2026-11-05T23:59:59Z',
-          cutOffDate: '2026-11-07T23:59:59Z',
-          allowLate: false,
-          isGroup: false,
-          maxScore: 10,
-          rubric: [
-            { criteria: 'Giải pháp Cache Invalidation hợp lý', maxPoints: 4 },
-            { criteria: 'Báo cáo benchmark so sánh trước và sau khi tối ưu', maxPoints: 6 },
-          ],
-          isSubmitted: false,
-        },
-      ]
-  );
+  const [assignments, setAssignments] = useState<AssignmentData[]>(initialAssignments);
+
+  useEffect(() => {
+    setAssignments(initialAssignments);
+  }, [initialAssignments]);
+
+  const updateAssignmentsState = (updater: (prev: AssignmentData[]) => AssignmentData[]) => {
+    setAssignments((prev) => {
+      const next = updater(prev);
+      onAssignmentsChange?.(next);
+      return next;
+    });
+  };
 
   // Groups state
   const [groups, setGroups] = useState<AssignmentGroup[]>([
@@ -104,6 +78,20 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
     },
   ]);
 
+  useEffect(() => {
+    if (!classId) return;
+    lmsService
+      .getAssignmentGroups(classId)
+      .then((res) => {
+        if (Array.isArray(res?.data) && res.data.length > 0) {
+          setGroups(res.data);
+        }
+      })
+      .catch(() => {
+        // Fallback to demo groups
+      });
+  }, [classId]);
+
   // Submission Modal
   const [selectedAssignment, setSelectedAssignment] = useState<AssignmentData | null>(null);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -117,6 +105,29 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
 
   // Grading Modal (Teacher)
   const [showGradingModal, setShowGradingModal] = useState(false);
+  const [submissionsList, setSubmissionsList] = useState<any[]>([
+    {
+      id: 'sub-1',
+      studentName: 'Nhóm Đồ Án 01 (Nguyễn Văn An)',
+      studentCode: '26107002',
+      submittedAt: '2026-11-10T09:15:00Z',
+      fileUrl: 'https://storage.preskool.edu.vn/submissions/report_project_v1.pdf',
+      linkUrl: 'https://github.com/preskool/backend-project',
+      onlineText: 'Dự án đã hoàn thành các module cơ bản, tích hợp JWT và kết nối PostgreSQL thành công.',
+      score: 8.5,
+    },
+    {
+      id: 'sub-2',
+      studentName: 'Nhóm Đồ Án 02 (Phạm Minh Đức)',
+      studentCode: '26107005',
+      submittedAt: '2026-11-10T10:30:00Z',
+      fileUrl: 'https://storage.preskool.edu.vn/submissions/report_group2.pdf',
+      linkUrl: 'https://github.com/preskool/group2-api',
+      onlineText: 'Đã hoàn thành 90% endpoints và viết tài liệu Swagger.',
+      score: null,
+    },
+  ]);
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string>('sub-1');
   const [gradingForm, setGradingForm] = useState<GradeSubmissionData>({
     score: 8.5,
     feedback: 'Code sạch sẽ, cấu trúc các tầng rất rõ ràng. Cần chú ý thêm trường hợp validation dữ liệu đầu vào.',
@@ -157,6 +168,41 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
     setShowSubmitModal(true);
   };
 
+  const handleOpenGrading = async (ass: AssignmentData) => {
+    setSelectedAssignment(ass);
+    const initialRubricScores: Record<string, number> = {};
+    let total = 0;
+    if (ass.rubric && ass.rubric.length > 0) {
+      ass.rubric.forEach((r, idx) => {
+        const pts = Math.round(r.maxPoints * 0.85 * 10) / 10;
+        initialRubricScores[idx.toString()] = pts;
+        total += pts;
+      });
+    } else {
+      total = 8.5;
+    }
+
+    setGradingForm({
+      score: Math.round(total * 10) / 10,
+      feedback: 'Code sạch sẽ, cấu trúc các tầng rất rõ ràng. Cần chú ý thêm trường hợp validation dữ liệu đầu vào.',
+      rubricScores: initialRubricScores,
+    });
+
+    try {
+      if (ass.id) {
+        const res = await lmsService.getSubmissions(ass.id);
+        if (Array.isArray(res?.data) && res.data.length > 0) {
+          setSubmissionsList(res.data);
+          setSelectedSubmissionId(res.data[0].id);
+        }
+      }
+    } catch {
+      // Fallback to demo submissionsList
+    }
+
+    setShowGradingModal(true);
+  };
+
   const handleSubmitAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAssignment) return;
@@ -167,7 +213,7 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
       // Demo fallback
     }
 
-    setAssignments((prev) =>
+    updateAssignmentsState((prev) =>
       prev.map((a) => (a.id === selectedAssignment.id ? { ...a, isSubmitted: true } : a))
     );
     alert('Nộp bài tập thành công! Hệ thống đã ghi nhận bài nộp và cập nhật trạng thái.');
@@ -177,10 +223,13 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
   const handleGradeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await lmsService.gradeSubmission('sub-demo', gradingForm);
+      await lmsService.gradeSubmission(selectedSubmissionId || 'sub-demo', gradingForm);
     } catch {
       // fallback
     }
+    setSubmissionsList((prev) =>
+      prev.map((s) => (s.id === selectedSubmissionId ? { ...s, score: gradingForm.score } : s))
+    );
     alert(`Đã lưu điểm thành công: ${gradingForm.score}/10!`);
     setShowGradingModal(false);
   };
@@ -189,15 +238,31 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
     e.preventDefault();
     const newAss: AssignmentData = {
       ...createForm,
+      classId,
       id: `ass-${Date.now()}`,
       isSubmitted: false,
     };
     try {
-      await lmsService.createAssignment(newAss);
+      const res = await lmsService.createAssignment(newAss);
+      if (res?.data?.id) newAss.id = res.data.id;
     } catch {
       // fallback
     }
-    setAssignments((prev) => [newAss, ...prev]);
+    updateAssignmentsState((prev) => [newAss, ...prev]);
+    setCreateForm({
+      classId,
+      title: '',
+      description: '',
+      deadline: '',
+      cutOffDate: '',
+      allowLate: true,
+      isGroup: false,
+      maxScore: 10,
+      rubric: [
+        { criteria: 'Yêu cầu kỹ thuật & Kiến trúc', maxPoints: 5 },
+        { criteria: 'Giao diện & Trải nghiệm người dùng', maxPoints: 5 },
+      ],
+    });
     setShowCreateModal(false);
     onRefresh?.();
   };
@@ -205,16 +270,22 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
   const handleAutoSplit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await lmsService.autoSplitGroups({
+      const res = await lmsService.autoSplitGroups({
         classId,
         groupSize: splitSize,
         prefix: splitPrefix,
       });
+      if (Array.isArray(res?.data) && res.data.length > 0) {
+        setGroups(res.data);
+        setShowAutoSplitModal(false);
+        alert(`Đã tự động chia thành ${res.data.length} nhóm thành công!`);
+        return;
+      }
     } catch {
       // fallback
     }
 
-    // Mock split 3 groups
+    // Mock split groups
     const newGroups: AssignmentGroup[] = [
       {
         id: `grp-${Date.now()}-1`,
@@ -246,16 +317,18 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
     } catch {
       // fallback
     }
+    const myCode = user?.studentCode || '26107002';
+    const myName = user?.profile?.fullName || user?.fullName || user?.username || 'Sinh viên hiện tại';
     setGroups((prev) =>
       prev.map((g) => {
         if (g.id === groupId) {
-          const already = g.members.some((m) => m.studentCode === '26107002');
+          const already = g.members.some((m) => m.studentCode === myCode);
           if (already) return g;
           return {
             ...g,
             members: [
               ...g.members,
-              { id: 'my-st', studentCode: '26107002', fullName: user?.fullName || 'Sinh viên hiện tại' },
+              { id: `st-${Date.now()}`, studentCode: myCode, fullName: myName },
             ],
           };
         }
@@ -265,6 +338,8 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
     alert('Đã tham gia nhóm thành công!');
   };
 
+  const currentSubmission = submissionsList.find((s) => s.id === selectedSubmissionId) || submissionsList[0];
+
   return (
     <div className="space-y-6">
       {/* Tab Switcher & Top Actions */}
@@ -272,16 +347,18 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
         <div className="flex rounded-xl bg-gray-100 p-1 self-start">
           <button
             onClick={() => setActiveTab('assignments')}
-            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${activeTab === 'assignments' ? 'bg-white text-blue-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'
-              }`}
+            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
+              activeTab === 'assignments' ? 'bg-white text-blue-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+            }`}
           >
             <FileText className="h-4 w-4" />
             <span>Danh Sách Bài Tập ({assignments.length})</span>
           </button>
           <button
             onClick={() => setActiveTab('groups')}
-            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${activeTab === 'groups' ? 'bg-white text-blue-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'
-              }`}
+            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
+              activeTab === 'groups' ? 'bg-white text-blue-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+            }`}
           >
             <Users className="h-4 w-4" />
             <span>Nhóm Đồ Án ({groups.length} Nhóm)</span>
@@ -324,8 +401,9 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
                 <div className="space-y-2 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${ass.isGroup ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'
-                        }`}
+                      className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${
+                        ass.isGroup ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'
+                      }`}
                     >
                       {ass.isGroup ? 'Đồ Án Nhóm' : 'Cá Nhân'}
                     </span>
@@ -382,23 +460,19 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
 
                 {/* Actions */}
                 <div className="flex flex-row lg:flex-col gap-2 shrink-0 self-end lg:self-center">
-                  {isStudent && (
-                    <button
-                      onClick={() => handleOpenSubmit(ass)}
-                      className={`flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white transition shadow-xs cursor-pointer ${ass.isSubmitted ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
-                        }`}
-                    >
-                      <UploadCloud className="h-4 w-4" />
-                      <span>{ass.isSubmitted ? 'Nộp Lại (Resubmit)' : 'Nộp Bài Tập'}</span>
-                    </button>
-                  )}
+                  <button
+                    onClick={() => handleOpenSubmit(ass)}
+                    className={`flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white transition shadow-xs cursor-pointer ${
+                      ass.isSubmitted ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
+                    }`}
+                  >
+                    <UploadCloud className="h-4 w-4" />
+                    <span>{ass.isSubmitted ? 'Nộp Lại (Resubmit)' : 'Nộp Bài Tập'}</span>
+                  </button>
 
                   {(isAdmin || isTeacher) && (
                     <button
-                      onClick={() => {
-                        setSelectedAssignment(ass);
-                        setShowGradingModal(true);
-                      }}
+                      onClick={() => handleOpenGrading(ass)}
                       className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
                     >
                       <Award className="h-4 w-4 text-blue-600" />
@@ -566,38 +640,103 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
             </div>
 
             <form onSubmit={handleGradeSubmit} className="mt-4 space-y-4 text-xs">
+              {/* Chọn bài nộp của sinh viên/nhóm */}
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Chọn bài nộp cần chấm:</label>
+                <select
+                  value={selectedSubmissionId}
+                  onChange={(e) => setSelectedSubmissionId(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50/70 p-2.5 outline-none focus:border-blue-500 font-medium"
+                >
+                  {submissionsList.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.studentName} ({s.studentCode}) {s.score !== null ? `- Đã chấm: ${s.score}đ` : '- Chưa chấm'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Thông tin bài nộp của sinh viên */}
+              {currentSubmission && (
+                <div className="rounded-xl bg-gray-50 p-3.5 border border-gray-100 space-y-2">
+                  <p className="font-bold text-gray-800">Nội dung bài nộp của sinh viên:</p>
+                  {currentSubmission.onlineText && (
+                    <p className="text-gray-600 italic">"{currentSubmission.onlineText}"</p>
+                  )}
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {currentSubmission.fileUrl && (
+                      <a
+                        href={currentSubmission.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md bg-white border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-blue-600 hover:bg-blue-50"
+                      >
+                        <ExternalLink className="h-3 w-3" /> Xem File Báo Cáo
+                      </a>
+                    )}
+                    {currentSubmission.linkUrl && (
+                      <a
+                        href={currentSubmission.linkUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md bg-white border border-gray-200 px-2.5 py-1 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50"
+                      >
+                        <ExternalLink className="h-3 w-3" /> Mở Source Code Repo
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-xl bg-blue-50 p-3.5 border border-blue-100 flex items-center justify-between">
-                <span className="font-bold text-blue-900">Tổng điểm tổng kết (Thang 10):</span>
-                <span className="text-lg font-bold text-blue-700 font-mono">{gradingForm.score} / 10</span>
+                <span className="font-bold text-blue-900">Tổng điểm tổng kết (Thang {selectedAssignment.maxScore || 10}):</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max={selectedAssignment.maxScore || 10}
+                  value={gradingForm.score}
+                  onChange={(e) =>
+                    setGradingForm((prev) => ({ ...prev, score: parseFloat(e.target.value) || 0 }))
+                  }
+                  className="w-24 rounded-lg border border-blue-300 bg-white px-2.5 py-1 text-right text-base font-bold text-blue-700 font-mono outline-none"
+                />
               </div>
 
               {/* Rubric scores */}
-              <div className="space-y-3">
-                <p className="font-bold text-gray-800">Chấm điểm từng tiêu chí:</p>
-                {selectedAssignment.rubric?.map((rub, rIdx) => (
-                  <div key={rIdx} className="rounded-lg bg-gray-50 p-3 border border-gray-100 space-y-1">
-                    <div className="flex justify-between font-semibold text-gray-700">
-                      <span>{rub.criteria}</span>
-                      <span className="text-blue-600">Tối đa: {rub.maxPoints}đ</span>
+              {selectedAssignment.rubric && selectedAssignment.rubric.length > 0 && (
+                <div className="space-y-3">
+                  <p className="font-bold text-gray-800">Chấm điểm từng tiêu chí (Tự động cộng tổng):</p>
+                  {selectedAssignment.rubric.map((rub, rIdx) => (
+                    <div key={rIdx} className="rounded-lg bg-gray-50 p-3 border border-gray-100 space-y-1">
+                      <div className="flex justify-between font-semibold text-gray-700">
+                        <span>{rub.criteria}</span>
+                        <span className="text-blue-600">Tối đa: {rub.maxPoints}đ</span>
+                      </div>
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        max={rub.maxPoints}
+                        value={gradingForm.rubricScores?.[rIdx.toString()] ?? 0}
+                        onChange={(e) => {
+                          const val = Math.min(rub.maxPoints, Math.max(0, parseFloat(e.target.value) || 0));
+                          setGradingForm((prev) => {
+                            const nextRubric = { ...prev.rubricScores, [rIdx.toString()]: val };
+                            const nextTotal = Object.values(nextRubric).reduce((acc, v) => acc + (Number(v) || 0), 0);
+                            return {
+                              ...prev,
+                              rubricScores: nextRubric,
+                              score: Math.round(nextTotal * 100) / 100,
+                            };
+                          });
+                        }}
+                        className="w-full rounded-md border border-gray-200 bg-white p-2 outline-none focus:border-blue-500"
+                      />
                     </div>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      max={rub.maxPoints}
-                      defaultValue={rub.maxPoints * 0.85}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
-                        setGradingForm((prev) => ({
-                          ...prev,
-                          rubricScores: { ...prev.rubricScores, [rIdx.toString()]: val },
-                        }));
-                      }}
-                      className="w-full rounded-md border border-gray-200 bg-white p-2 outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
 
               <div>
                 <label className="font-semibold text-gray-700 block mb-1">Nhận xét chi tiết & Phản hồi</label>
@@ -687,6 +826,67 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
                     className="w-full rounded-lg border border-gray-200 p-2 outline-none"
                   />
                 </div>
+              </div>
+
+              {/* Cấu hình Rubric tiêu chí chấm điểm */}
+              <div className="space-y-2 rounded-xl bg-gray-50 p-3 border border-gray-100">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-gray-700">Tiêu chí chấm điểm (Rubric)</label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCreateForm((prev) => ({
+                        ...prev,
+                        rubric: [...(prev.rubric || []), { criteria: '', maxPoints: 2 }],
+                      }))
+                    }
+                    className="text-blue-600 font-semibold hover:underline cursor-pointer"
+                  >
+                    + Thêm tiêu chí
+                  </button>
+                </div>
+                {createForm.rubric?.map((r, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Tên tiêu chí..."
+                      value={r.criteria}
+                      onChange={(e) => {
+                        const updated = [...(createForm.rubric || [])];
+                        updated[idx] = { ...updated[idx], criteria: e.target.value };
+                        setCreateForm({ ...createForm, rubric: updated });
+                      }}
+                      className="flex-1 rounded-lg border border-gray-200 bg-white p-2 outline-none"
+                      required
+                    />
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0.5"
+                      max="10"
+                      value={r.maxPoints}
+                      onChange={(e) => {
+                        const updated = [...(createForm.rubric || [])];
+                        updated[idx] = { ...updated[idx], maxPoints: parseFloat(e.target.value) || 0 };
+                        setCreateForm({ ...createForm, rubric: updated });
+                      }}
+                      className="w-16 rounded-lg border border-gray-200 bg-white p-2 text-center outline-none"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          rubric: prev.rubric?.filter((_, i) => i !== idx),
+                        }))
+                      }
+                      className="text-gray-400 hover:text-rose-600 p-1 cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
 
               <div className="flex items-center gap-6 pt-1">

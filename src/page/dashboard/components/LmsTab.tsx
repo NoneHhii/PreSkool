@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { academicService, type Class } from '../../../services/academic.service';
-import { type LmsModuleData, type AssignmentData } from '../../../services/lms.service';
+import { lmsService, type LmsModuleData, type AssignmentData } from '../../../services/lms.service';
 import {
   BookOpen,
   FileText,
@@ -17,97 +17,167 @@ import LmsDiscussions from './lms/LmsDiscussions';
 import LmsGradebook from './lms/LmsGradebook';
 import LmsCalendarAnnouncements from './lms/LmsCalendarAnnouncements';
 
+const DEFAULT_MODULES: LmsModuleData[] = [
+  {
+    id: 'mod-1',
+    classId: 'class-demo',
+    title: 'Tuần 1: Tổng quan Kiến trúc Hệ thống & RESTful API',
+    description: 'Tổng quan môn học, phương pháp học tập và các chuẩn đầu ra cần đạt được.',
+    week: 1,
+    materials: [
+      {
+        id: 'mat-1',
+        title: 'Đề cương chi tiết học phần (PDF)',
+        type: 'PDF',
+        url: 'https://storage.preskool.edu.vn/materials/de_cuong.pdf',
+        description: 'Tài liệu hướng dẫn môn học và phương pháp đánh giá',
+        isCompleted: true,
+      },
+      {
+        id: 'mat-2',
+        title: 'Video Bài giảng Khai mạc môn học',
+        type: 'VIDEO',
+        url: 'https://storage.preskool.edu.vn/materials/video_lecture_1.mp4',
+        description: 'Xem trước bài giảng trước khi lên lớp',
+        isCompleted: true,
+      },
+      {
+        id: 'mat-3',
+        title: 'Slide bài giảng Tuần 1: Clean Architecture',
+        type: 'PPTX',
+        url: 'https://storage.preskool.edu.vn/materials/slide_week1.pptx',
+        description: 'Slide chính thức dùng trong các buổi học lý thuyết',
+        isCompleted: false,
+      },
+    ],
+  },
+  {
+    id: 'mod-2',
+    classId: 'class-demo',
+    title: 'Tuần 2: Thiết kế CSDL Quan Hệ & Tối Ưu Truy Vấn',
+    description: 'Mô hình hóa dữ liệu quan hệ, Indexing B-Tree và Transaction Isolation.',
+    week: 2,
+    materials: [
+      {
+        id: 'mat-4',
+        title: 'Slide bài giảng Tuần 2: Database Indexing',
+        type: 'PDF',
+        url: 'https://storage.preskool.edu.vn/materials/slide_week2.pdf',
+        isCompleted: false,
+      },
+      {
+        id: 'mat-5',
+        title: 'Tài liệu đọc thêm: Designing Data-Intensive Applications',
+        type: 'LINK',
+        url: 'https://dataintensive.net',
+        isCompleted: false,
+      },
+    ],
+  },
+];
+
+const DEFAULT_ASSIGNMENTS: AssignmentData[] = [
+  {
+    id: 'ass-1',
+    classId: 'class-demo',
+    title: 'Bài tập lớn: Xây dựng RESTful API Backend với NestJS',
+    description:
+      'Sinh viên thiết kế API theo kiến trúc phân tầng Clean Architecture, có xác thực JWT, kết nối PostgreSQL qua Prisma ORM và viết tài liệu Swagger.',
+    openDate: '2026-11-01T00:00:00Z',
+    deadline: '2026-11-15T23:59:59Z',
+    cutOffDate: '2026-11-18T23:59:59Z',
+    allowLate: true,
+    isGroup: true,
+    maxScore: 10,
+    rubric: [
+      { criteria: 'Thiết kế CSDL chuẩn hóa (3NF & Indexing)', maxPoints: 3 },
+      { criteria: 'Xử lý logic nghiệp vụ, bảo mật JWT & Phân quyền', maxPoints: 5 },
+      { criteria: 'Tài liệu Swagger OpenAPI & Unit Tests', maxPoints: 2 },
+    ],
+    isSubmitted: true,
+  },
+  {
+    id: 'ass-2',
+    classId: 'class-demo',
+    title: 'Bài tập cá nhân Tuần 2: Query Optimization & Caching Redis',
+    description:
+      'Tối ưu hóa câu truy vấn SQL phức tạp, cấu hình Redis Cache cho các endpoint đọc nhiều và đo lường sự cải thiện bằng Apache Benchmark.',
+    openDate: '2026-10-25T00:00:00Z',
+    deadline: '2026-11-05T23:59:59Z',
+    cutOffDate: '2026-11-07T23:59:59Z',
+    allowLate: false,
+    isGroup: false,
+    maxScore: 10,
+    rubric: [
+      { criteria: 'Giải pháp Cache Invalidation hợp lý', maxPoints: 4 },
+      { criteria: 'Báo cáo benchmark so sánh trước và sau khi tối ưu', maxPoints: 6 },
+    ],
+    isSubmitted: false,
+  },
+];
+
 export default function LmsTab({ user }: { user: any }) {
   const [classes, setClasses] = useState<Class[]>([]);
-  const [selectedClassId, setSelectedClassId] = useState<string>('');
+  const [selectedClassId, setSelectedClassId] = useState<string>('class-demo');
   const [selectedClassName, setSelectedClassName] = useState<string>('Lập trình RESTful API & Backend (SE101.N11)');
   const [activeSubTab, setActiveSubTab] = useState<
     'space' | 'assignments' | 'quizzes' | 'discussions' | 'gradebook' | 'calendar'
   >('space');
 
-  const [modules] = useState<LmsModuleData[]>([
-    {
-      id: 'mod-1',
-      classId: 'class-demo',
-      title: 'Tuần 1: Tổng quan Kiến trúc Hệ thống & RESTful API',
-      description: 'Tổng quan môn học, phương pháp học tập và các chuẩn đầu ra cần đạt được.',
-      week: 1,
-      materials: [
-        {
-          id: 'mat-1',
-          title: 'Đề cương chi tiết học phần (PDF)',
-          type: 'PDF',
-          url: 'https://storage.preskool.edu.vn/materials/de_cuong.pdf',
-          description: 'Tài liệu hướng dẫn môn học và phương pháp đánh giá',
-          isCompleted: true,
-        },
-        {
-          id: 'mat-2',
-          title: 'Video Bài giảng Khai mạc môn học',
-          type: 'VIDEO',
-          url: 'https://storage.preskool.edu.vn/materials/video_lecture_1.mp4',
-          description: 'Xem trước bài giảng trước khi lên lớp',
-          isCompleted: true,
-        },
-        {
-          id: 'mat-3',
-          title: 'Slide bài giảng Tuần 1: Clean Architecture',
-          type: 'PPTX',
-          url: 'https://storage.preskool.edu.vn/materials/slide_week1.pptx',
-          description: 'Slide chính thức dùng trong các buổi học lý thuyết',
-          isCompleted: false,
-        },
-      ],
-    },
-    {
-      id: 'mod-2',
-      classId: 'class-demo',
-      title: 'Tuần 2: Thiết kế CSDL Quan Hệ & Tối Ưu Truy Vấn',
-      description: 'Mô hình hóa dữ liệu quan hệ, Indexing B-Tree và Transaction Isolation.',
-      week: 2,
-      materials: [
-        {
-          id: 'mat-4',
-          title: 'Slide bài giảng Tuần 2: Database Indexing',
-          type: 'PDF',
-          url: 'https://storage.preskool.edu.vn/materials/slide_week2.pdf',
-          isCompleted: false,
-        },
-        {
-          id: 'mat-5',
-          title: 'Tài liệu đọc thêm: Designing Data-Intensive Applications',
-          type: 'LINK',
-          url: 'https://dataintensive.net',
-          isCompleted: false,
-        },
-      ],
-    },
-  ]);
+  const [modules, setModules] = useState<LmsModuleData[]>(DEFAULT_MODULES);
+  const [assignments, setAssignments] = useState<AssignmentData[]>(DEFAULT_ASSIGNMENTS);
 
-  const [assignments] = useState<AssignmentData[]>([]);
+  const fetchClassData = useCallback(async (cId: string) => {
+    if (!cId) return;
+    try {
+      const [modRes, assRes] = await Promise.allSettled([
+        lmsService.getModules(cId),
+        lmsService.getAssignments(cId),
+      ]);
 
-  useEffect(() => {
-    fetchClasses();
+      if (modRes.status === 'fulfilled' && Array.isArray(modRes.value?.data) && modRes.value.data.length > 0) {
+        setModules(modRes.value.data);
+      } else {
+        setModules(DEFAULT_MODULES.map((m) => ({ ...m, classId: cId })));
+      }
+
+      if (assRes.status === 'fulfilled' && Array.isArray(assRes.value?.data) && assRes.value.data.length > 0) {
+        setAssignments(assRes.value.data);
+      } else {
+        setAssignments(DEFAULT_ASSIGNMENTS.map((a) => ({ ...a, classId: cId })));
+      }
+    } catch {
+      setModules(DEFAULT_MODULES.map((m) => ({ ...m, classId: cId })));
+      setAssignments(DEFAULT_ASSIGNMENTS.map((a) => ({ ...a, classId: cId })));
+    }
   }, []);
 
-  const fetchClasses = async () => {
+  const fetchClasses = useCallback(async () => {
     try {
       const res = await academicService.getClasses();
-      const list = res.data || [];
+      const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
       setClasses(list);
       if (list.length > 0) {
-        setSelectedClassId(list[0].id);
+        const firstId = list[0].id;
+        setSelectedClassId(firstId);
         setSelectedClassName(`${list[0].code} - ${list[0].course?.name || 'Lớp Học Phần'}`);
+        fetchClassData(firstId);
       } else {
         setSelectedClassId('class-demo');
         setSelectedClassName('SE101.N11 - Lập trình RESTful API & Backend');
+        fetchClassData('class-demo');
       }
     } catch (err) {
       console.warn('Could not load classes list for LMS:', err);
       setSelectedClassId('class-demo');
       setSelectedClassName('SE101.N11 - Lập trình RESTful API & Backend');
+      fetchClassData('class-demo');
     }
-  };
+  }, [fetchClassData]);
+
+  useEffect(() => {
+    fetchClasses();
+  }, [fetchClasses]);
 
   const handleSelectClass = (cId: string) => {
     setSelectedClassId(cId);
@@ -115,6 +185,7 @@ export default function LmsTab({ user }: { user: any }) {
     if (found) {
       setSelectedClassName(`${found.code} - ${found.course?.name || 'Lớp Học Phần'}`);
     }
+    fetchClassData(cId);
   };
 
   return (
@@ -243,7 +314,8 @@ export default function LmsTab({ user }: { user: any }) {
             classNameTitle={selectedClassName}
             user={user}
             modules={modules}
-            onRefresh={fetchClasses}
+            onModulesChange={setModules}
+            onRefresh={() => fetchClassData(selectedClassId)}
           />
         )}
 
@@ -253,7 +325,8 @@ export default function LmsTab({ user }: { user: any }) {
             classId={selectedClassId}
             user={user}
             assignments={assignments}
-            onRefresh={fetchClasses}
+            onAssignmentsChange={setAssignments}
+            onRefresh={() => fetchClassData(selectedClassId)}
           />
         )}
 

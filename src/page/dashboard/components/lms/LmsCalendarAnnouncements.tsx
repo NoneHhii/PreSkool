@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   lmsService,
 } from '../../../../services/lms.service';
@@ -24,6 +24,7 @@ export const LmsCalendarAnnouncements: React.FC<LmsCalendarAnnouncementsProps> =
   const isTeacher = user?.role === 'TEACHER';
 
   const [activeTab, setActiveTab] = useState<'calendar' | 'announcements'>('calendar');
+  const [calendarFilter, setCalendarFilter] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('ALL');
 
   // Demo Calendar To-do items
   const [calendarItems, setCalendarItems] = useState<any[]>([
@@ -89,15 +90,71 @@ export const LmsCalendarAnnouncements: React.FC<LmsCalendarAnnouncementsProps> =
     },
   ]);
 
+  useEffect(() => {
+    const fetchCalendarAndAnnouncements = async () => {
+      try {
+        const [calRes, annRes] = await Promise.all([
+          lmsService.getMyCalendar().catch(() => null),
+          lmsService.getAnnouncements(classId).catch(() => null),
+        ]);
+        const calData = calRes?.data?.data || calRes?.data;
+        if (Array.isArray(calData) && calData.length > 0) {
+          setCalendarItems(calData);
+        }
+        const annData = annRes?.data?.data || annRes?.data;
+        if (Array.isArray(annData) && annData.length > 0) {
+          setAnnouncements(annData);
+        }
+      } catch {
+        // fallback demo data
+      }
+    };
+    fetchCalendarAndAnnouncements();
+  }, [classId]);
+
   // Modals
   const [showAnnounceModal, setShowAnnounceModal] = useState(false);
   const [annTitle, setAnnTitle] = useState('');
   const [annContent, setAnnContent] = useState('');
 
+  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
+  const [taskForm, setTaskForm] = useState({
+    title: '',
+    type: 'ASSIGNMENT',
+    courseName: 'Lập trình RESTful API',
+    dueDate: '',
+    priority: 'HIGH',
+  });
+
   const handleToggleComplete = (id: string) => {
     setCalendarItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, isCompleted: !item.isCompleted } : item))
     );
+  };
+
+  const handleAddTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskForm.title.trim() || !taskForm.dueDate) return;
+
+    const newItem = {
+      id: `cal-${Date.now()}`,
+      type: taskForm.type,
+      title: taskForm.title,
+      courseName: taskForm.courseName,
+      dueDate: taskForm.dueDate,
+      isCompleted: false,
+      priority: taskForm.priority,
+    };
+
+    setCalendarItems((prev) => [newItem, ...prev]);
+    setTaskForm({
+      title: '',
+      type: 'ASSIGNMENT',
+      courseName: 'Lập trình RESTful API',
+      dueDate: '',
+      priority: 'HIGH',
+    });
+    setShowAddTaskModal(false);
   };
 
   const handleCreateAnnouncement = async (e: React.FormEvent) => {
@@ -140,6 +197,12 @@ export const LmsCalendarAnnouncements: React.FC<LmsCalendarAnnouncementsProps> =
     }
   };
 
+  const filteredCalendarItems = calendarItems.filter((item) => {
+    if (calendarFilter === 'PENDING') return !item.isCompleted;
+    if (calendarFilter === 'COMPLETED') return item.isCompleted;
+    return true;
+  });
+
   return (
     <div className="space-y-6">
       {/* Tab Switcher */}
@@ -165,26 +228,58 @@ export const LmsCalendarAnnouncements: React.FC<LmsCalendarAnnouncementsProps> =
           </button>
         </div>
 
-        {(isAdmin || isTeacher) && activeTab === 'announcements' && (
-          <button
-            onClick={() => setShowAnnounceModal(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-700 transition shadow-xs cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Đăng Thông Báo Khẩn</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {activeTab === 'calendar' && (
+            <button
+              onClick={() => setShowAddTaskModal(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-700 transition shadow-xs cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Thêm Nhắc Hạn Cá Nhân</span>
+            </button>
+          )}
+          {(isAdmin || isTeacher) && activeTab === 'announcements' && (
+            <button
+              onClick={() => setShowAnnounceModal(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-700 transition shadow-xs cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Đăng Thông Báo Khẩn</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 1. CALENDAR TO-DO LIST */}
       {activeTab === 'calendar' && (
         <div className="space-y-3">
-          <div className="rounded-xl bg-blue-50/60 border border-blue-100 p-3 text-xs text-blue-800">
-            Hệ thống tự động quét lịch nộp bài tập, ca thi Quiz và lịch học online của tất cả các lớp bạn tham gia.
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl bg-blue-50/60 border border-blue-100 p-3 text-xs text-blue-800">
+            <span>
+              Hệ thống tự động quét lịch nộp bài tập, ca thi Quiz và lịch học online của tất cả các lớp bạn tham gia.
+            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {(['ALL', 'PENDING', 'COMPLETED'] as const).map((status) => (
+                <button
+                  key={status}
+                  onClick={() => setCalendarFilter(status)}
+                  className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition cursor-pointer ${
+                    calendarFilter === status
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-blue-700 hover:bg-blue-100'
+                  }`}
+                >
+                  {status === 'ALL'
+                    ? 'Tất cả'
+                    : status === 'PENDING'
+                    ? 'Chưa hoàn thành'
+                    : 'Đã xong'}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="divide-y divide-gray-100 rounded-2xl border border-gray-100 bg-white shadow-xs overflow-hidden">
-            {calendarItems.map((item) => (
+            {filteredCalendarItems.map((item) => (
               <div
                 key={item.id}
                 onClick={() => handleToggleComplete(item.id)}
@@ -266,6 +361,92 @@ export const LmsCalendarAnnouncements: React.FC<LmsCalendarAnnouncementsProps> =
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* MODAL: Thêm nhắc hạn cá nhân */}
+      {showAddTaskModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl animate-in fade-in">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h3 className="text-base font-bold text-gray-900">Thêm Lịch Nhắc Hạn Mới</h3>
+              <button
+                onClick={() => setShowAddTaskModal(false)}
+                className="text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddTask} className="mt-4 space-y-4 text-xs">
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Nội dung công việc / Deadline</label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Hoàn thành báo cáo chương 3..."
+                  value={taskForm.title}
+                  onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 p-2.5 outline-none focus:border-blue-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Phân loại</label>
+                  <select
+                    value={taskForm.type}
+                    onChange={(e) => setTaskForm({ ...taskForm, type: e.target.value })}
+                    className="w-full rounded-lg border border-gray-200 p-2.5 outline-none"
+                  >
+                    <option value="ASSIGNMENT">Bài tập / Đồ án</option>
+                    <option value="QUIZ">Trắc nghiệm Quiz</option>
+                    <option value="VIRTUAL_CLASS">Lớp học trực tuyến</option>
+                    <option value="EXAM">Lịch thi</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Mức độ ưu tiên</label>
+                  <select
+                    value={taskForm.priority}
+                    onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}
+                    className="w-full rounded-lg border border-gray-200 p-2.5 outline-none"
+                  >
+                    <option value="HIGH">Ưu tiên cao</option>
+                    <option value="MEDIUM">Bình thường</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Thời hạn (Deadline)</label>
+                <input
+                  type="datetime-local"
+                  value={taskForm.dueDate}
+                  onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 p-2.5 outline-none focus:border-blue-500"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddTaskModal(false)}
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 cursor-pointer"
+                >
+                  Thêm Vào Lịch
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

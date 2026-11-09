@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   lmsService,
   type SyllabusData,
@@ -28,6 +28,7 @@ interface LmsCourseSpaceProps {
   classNameTitle: string;
   user: any;
   modules: LmsModuleData[];
+  onModulesChange?: (modules: LmsModuleData[]) => void;
   onRefresh?: () => void;
 }
 
@@ -36,6 +37,7 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
   classNameTitle,
   user,
   modules: initialModules,
+  onModulesChange,
   onRefresh,
 }) => {
   const isAdmin = user?.role === 'ADMIN';
@@ -59,7 +61,7 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
     },
     textbooks: [
       'Giáo trình Lập trình Hướng dịch vụ - NXB ĐHQG (2024)',
-      'Clean Architecture: A Craftsman\'s Guide to Software Structure - Robert C. Martin',
+      "Clean Architecture: A Craftsman's Guide to Software Structure - Robert C. Martin",
       'Designing Data-Intensive Applications - Martin Kleppmann',
     ],
     description: 'Học phần chuyên ngành cốt lõi dành cho sinh viên năm 3 ngành Công nghệ Thông tin & Kỹ thuật Phần mềm.',
@@ -70,6 +72,33 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
     'mod-1': true,
     'mod-2': true,
   });
+
+  useEffect(() => {
+    setModules(initialModules);
+  }, [initialModules]);
+
+  useEffect(() => {
+    if (!classId) return;
+    lmsService
+      .getCourseSpace(classId)
+      .then((res) => {
+        if (res?.data?.syllabus) {
+          setSyllabus(res.data.syllabus);
+          setSyllabusForm(res.data.syllabus);
+        }
+      })
+      .catch(() => {
+        // Fallback to default syllabus
+      });
+  }, [classId]);
+
+  const updateModulesState = (updater: (prev: LmsModuleData[]) => LmsModuleData[]) => {
+    setModules((prev) => {
+      const next = updater(prev);
+      onModulesChange?.(next);
+      return next;
+    });
+  };
 
   // Syllabus Modal
   const [showSyllabusModal, setShowSyllabusModal] = useState(false);
@@ -101,7 +130,7 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
     (acc, m) => acc + (m.materials?.filter((mat) => mat.isCompleted)?.length || 0),
     0
   );
-  const progressPercent = totalMaterials > 0 ? Math.round((completedMaterials / totalMaterials) * 100) : 65;
+  const progressPercent = totalMaterials > 0 ? Math.round((completedMaterials / totalMaterials) * 100) : 0;
 
   const handleCompleteMaterial = async (moduleId: string, materialId: string) => {
     try {
@@ -113,7 +142,7 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
       // Demo fallback
     }
 
-    setModules((prev) =>
+    updateModulesState((prev) =>
       prev.map((mod) => {
         if (mod.id === moduleId && mod.materials) {
           return {
@@ -121,6 +150,27 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
             materials: mod.materials.map((mat) =>
               mat.id === materialId ? { ...mat, isCompleted: true, progressPercent: 100 } : mat
             ),
+          };
+        }
+        return mod;
+      })
+    );
+  };
+
+  const handleDeleteMaterial = async (moduleId: string, materialId: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa học liệu này?')) return;
+    try {
+      await lmsService.deleteMaterial(materialId);
+    } catch {
+      // Demo fallback
+    }
+
+    updateModulesState((prev) =>
+      prev.map((mod) => {
+        if (mod.id === moduleId && mod.materials) {
+          return {
+            ...mod,
+            materials: mod.materials.filter((mat) => mat.id !== materialId),
           };
         }
         return mod;
@@ -153,12 +203,13 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
     };
 
     try {
-      await lmsService.createModule(newMod);
+      const res = await lmsService.createModule(newMod);
+      if (res?.data?.id) newMod.id = res.data.id;
     } catch {
       // Demo fallback
     }
 
-    setModules((prev) => [...prev, newMod]);
+    updateModulesState((prev) => [...prev, newMod]);
     setExpandedModules((prev) => ({ ...prev, [newMod.id!]: true }));
     setModuleTitle('');
     setModuleDesc('');
@@ -179,12 +230,13 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
     };
 
     try {
-      await lmsService.createMaterial(selectedModuleId, newMat);
+      const res = await lmsService.createMaterial(selectedModuleId, newMat);
+      if (res?.data?.id) newMat.id = res.data.id;
     } catch {
       // Demo fallback
     }
 
-    setModules((prev) =>
+    updateModulesState((prev) =>
       prev.map((m) => {
         if (m.id === selectedModuleId) {
           return {
@@ -207,7 +259,7 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
     } catch {
       // fallback
     }
-    setModules((prev) => prev.filter((m) => m.id !== moduleId));
+    updateModulesState((prev) => prev.filter((m) => m.id !== moduleId));
   };
 
   const getMaterialIcon = (type: string) => {
@@ -245,7 +297,10 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
             {(isAdmin || isTeacher) && (
               <>
                 <button
-                  onClick={() => setShowSyllabusModal(true)}
+                  onClick={() => {
+                    setSyllabusForm(syllabus);
+                    setShowSyllabusModal(true);
+                  }}
                   className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
                 >
                   <Edit3 className="h-3.5 w-3.5 text-blue-600" />
@@ -263,12 +318,12 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
           </div>
         </div>
 
-        {/* Progress bar for Students */}
+        {/* Progress bar */}
         <div className="mt-6 pt-5 border-t border-gray-100">
           <div className="flex items-center justify-between text-xs mb-2">
             <span className="font-semibold text-gray-700 flex items-center gap-1.5">
               <Sparkles className="h-4 w-4 text-amber-500" />
-              Tiến độ học tập tổng thể
+              Tiến độ học tập tổng thể ({completedMaterials}/{totalMaterials} học liệu)
             </span>
             <span className="font-bold text-blue-600">{progressPercent}% Hoàn thành</span>
           </div>
@@ -282,13 +337,13 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
       </div>
 
       {/* 2. Syllabus Accordion Card */}
-      <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-xs">
-        <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-3">
+      <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-xs space-y-4">
+        <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-blue-600" />
           Đề Cương Chi Tiết & Chuẩn Đầu Ra (Syllabus)
         </h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
           <div className="rounded-lg bg-gray-50/70 p-3.5 border border-gray-100">
             <p className="font-bold text-gray-800 mb-1">Mục Tiêu Môn Học:</p>
             <p className="text-gray-600 leading-relaxed">{syllabus.objectives}</p>
@@ -307,19 +362,31 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
           </div>
 
           <div className="rounded-lg bg-gray-50/70 p-3.5 border border-gray-100">
+            <p className="font-bold text-gray-800 mb-1">Tài Liệu & Giáo Trình:</p>
+            <ul className="space-y-1 text-gray-600">
+              {syllabus.textbooks.map((tb, idx) => (
+                <li key={idx} className="flex items-start gap-1.5">
+                  <span className="text-indigo-500 font-bold">•</span>
+                  <span>{tb}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-lg bg-gray-50/70 p-3.5 border border-gray-100">
             <p className="font-bold text-gray-800 mb-1">Tỷ Trọng Điểm Đánh Giá:</p>
             <div className="grid grid-cols-2 gap-2 mt-2">
               <span className="rounded bg-blue-50 p-1.5 text-center font-semibold text-blue-700">
-                Quiz: {syllabus.gradeWeights.quiz * 100}%
+                Quiz: {Math.round(syllabus.gradeWeights.quiz * 100)}%
               </span>
               <span className="rounded bg-indigo-50 p-1.5 text-center font-semibold text-indigo-700">
-                Bài tập: {syllabus.gradeWeights.assignment * 100}%
+                Bài tập: {Math.round(syllabus.gradeWeights.assignment * 100)}%
               </span>
               <span className="rounded bg-amber-50 p-1.5 text-center font-semibold text-amber-700">
-                Giữa kỳ: {syllabus.gradeWeights.midterm * 100}%
+                Giữa kỳ: {Math.round(syllabus.gradeWeights.midterm * 100)}%
               </span>
               <span className="rounded bg-emerald-50 p-1.5 text-center font-semibold text-emerald-700">
-                Cuối kỳ: {syllabus.gradeWeights.final * 100}%
+                Cuối kỳ: {Math.round(syllabus.gradeWeights.final * 100)}%
               </span>
             </div>
           </div>
@@ -435,13 +502,23 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
                           Mở xem
                         </a>
 
-                        {isStudent && !mat.isCompleted && (
+                        {!mat.isCompleted && (
                           <button
                             onClick={() => handleCompleteMaterial(mod.id!, mat.id!)}
                             className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition cursor-pointer shadow-xs"
                           >
                             <CheckCircle className="h-3 w-3" />
-                            Đánh dấu xong
+                            {isStudent ? 'Đánh dấu xong' : 'Hoàn thành'}
+                          </button>
+                        )}
+
+                        {(isAdmin || isTeacher) && (
+                          <button
+                            onClick={() => handleDeleteMaterial(mod.id!, mat.id!)}
+                            className="rounded-lg p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                            title="Xóa học liệu"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         )}
                       </div>
@@ -472,7 +549,7 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
               <div>
                 <label className="font-semibold text-gray-700 block mb-1">Mục Tiêu Môn Học</label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   value={syllabusForm.objectives}
                   onChange={(e) => setSyllabusForm({ ...syllabusForm, objectives: e.target.value })}
                   className="w-full rounded-lg border border-gray-200 p-2.5 outline-none focus:border-blue-500"
@@ -489,12 +566,48 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
                 />
               </div>
 
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">
+                  Chuẩn Đầu Ra (CLOs - Mỗi dòng 1 CLO)
+                </label>
+                <textarea
+                  rows={3}
+                  value={syllabusForm.clos.join('\n')}
+                  onChange={(e) =>
+                    setSyllabusForm({
+                      ...syllabusForm,
+                      clos: e.target.value.split('\n').filter((line) => line.trim() !== ''),
+                    })
+                  }
+                  className="w-full rounded-lg border border-gray-200 p-2.5 outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">
+                  Tài Liệu & Giáo Trình (Mỗi dòng 1 giáo trình)
+                </label>
+                <textarea
+                  rows={3}
+                  value={syllabusForm.textbooks.join('\n')}
+                  onChange={(e) =>
+                    setSyllabusForm({
+                      ...syllabusForm,
+                      textbooks: e.target.value.split('\n').filter((line) => line.trim() !== ''),
+                    })
+                  }
+                  className="w-full rounded-lg border border-gray-200 p-2.5 outline-none focus:border-blue-500"
+                />
+              </div>
+
               <div className="grid grid-cols-4 gap-2">
                 <div>
-                  <label className="font-semibold text-gray-700 block mb-1">Quiz (%)</label>
+                  <label className="font-semibold text-gray-700 block mb-1">Quiz (Hệ số)</label>
                   <input
                     type="number"
                     step="0.05"
+                    min="0"
+                    max="1"
                     value={syllabusForm.gradeWeights.quiz}
                     onChange={(e) =>
                       setSyllabusForm({
@@ -506,10 +619,12 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="font-semibold text-gray-700 block mb-1">Bài tập (%)</label>
+                  <label className="font-semibold text-gray-700 block mb-1">Bài tập (Hệ số)</label>
                   <input
                     type="number"
                     step="0.05"
+                    min="0"
+                    max="1"
                     value={syllabusForm.gradeWeights.assignment}
                     onChange={(e) =>
                       setSyllabusForm({
@@ -521,10 +636,12 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="font-semibold text-gray-700 block mb-1">Giữa kỳ (%)</label>
+                  <label className="font-semibold text-gray-700 block mb-1">Giữa kỳ (Hệ số)</label>
                   <input
                     type="number"
                     step="0.05"
+                    min="0"
+                    max="1"
                     value={syllabusForm.gradeWeights.midterm}
                     onChange={(e) =>
                       setSyllabusForm({
@@ -536,10 +653,12 @@ export const LmsCourseSpace: React.FC<LmsCourseSpaceProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="font-semibold text-gray-700 block mb-1">Cuối kỳ (%)</label>
+                  <label className="font-semibold text-gray-700 block mb-1">Cuối kỳ (Hệ số)</label>
                   <input
                     type="number"
                     step="0.05"
+                    min="0"
+                    max="1"
                     value={syllabusForm.gradeWeights.final}
                     onChange={(e) =>
                       setSyllabusForm({

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   lmsService,
   type QuizData,
@@ -134,10 +134,24 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
       fullName: 'Lê Hoàng Nam',
       startTime: '10:08:15',
       progress: '4/10 câu',
-      tabSwitchCount: 4, // Cheating suspected!
+      tabSwitchCount: 4,
       status: 'DOING',
     },
   ]);
+
+  useEffect(() => {
+    if (!classId) return;
+    lmsService
+      .getQuizzes(classId)
+      .then((res) => {
+        if (Array.isArray(res?.data) && res.data.length > 0) {
+          setQuizzes(res.data);
+        }
+      })
+      .catch(() => {
+        // Fallback to demo quizzes
+      });
+  }, [classId]);
 
   // ACTIVE EXAM STATE (STUDENT)
   const [activeQuiz, setActiveQuiz] = useState<QuizData | null>(null);
@@ -158,6 +172,7 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
   const [newQuizForm, setNewQuizForm] = useState<QuizData>({
     classId,
     title: '',
+    description: '',
     durationMinutes: 15,
     openTime: '',
     closeTime: '',
@@ -177,24 +192,79 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
     options: ['', '', '', ''],
     answer: '',
   });
+  const [correctOptionIdx, setCorrectOptionIdx] = useState<number>(0);
+
+  const handleSubmitExam = useCallback(
+    async (isTimeOut = false) => {
+      if (!isTimeOut && !window.confirm('Bạn có chắc chắn muốn nộp bài thi? Không thể thay đổi đáp án sau khi nộp.')) {
+        return;
+      }
+
+      setIsExamRunning(false);
+
+      try {
+        if (examAttemptId) {
+          await lmsService.submitQuiz(examAttemptId);
+        }
+      } catch {
+        // fallback
+      }
+
+      let correctCount = 0;
+      questions.forEach((q) => {
+        if (studentAnswers[q.id!] === q.answer) {
+          correctCount++;
+        }
+      });
+
+      const score = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) / 10 : 0;
+      setExamResult({
+        score,
+        totalQuestions: questions.length,
+        correctCount,
+        passed: score >= (activeQuiz?.passingScore || 5.0),
+        tabSwitches: tabSwitchAlert.count,
+      });
+    },
+    [examAttemptId, questions, studentAnswers, activeQuiz, tabSwitchAlert.count]
+  );
 
   // Countdown timer effect
   useEffect(() => {
-    let timer: any;
-    if (isExamRunning && timeLeftSeconds > 0) {
-      timer = setInterval(() => {
-        setTimeLeftSeconds((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            handleAutoSubmitExam();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
+    if (!isExamRunning) return;
+    const timer = setInterval(() => {
+      setTimeLeftSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleSubmitExam(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
     return () => clearInterval(timer);
-  }, [isExamRunning, timeLeftSeconds]);
+  }, [isExamRunning, handleSubmitExam]);
+
+  const handleTriggerCheatingLog = useCallback(
+    async (details: string) => {
+      setTabSwitchAlert((prev) => ({
+        show: true,
+        count: prev.count + 1,
+      }));
+
+      try {
+        if (examAttemptId) {
+          await lmsService.logCheating(examAttemptId, {
+            event: 'TAB_SWITCH',
+            details,
+          });
+        }
+      } catch {
+        // fallback
+      }
+    },
+    [examAttemptId]
+  );
 
   // Anti-cheating listeners (Tab Switch & Blur Detection)
   useEffect(() => {
@@ -217,29 +287,11 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [isExamRunning, examAttemptId]);
-
-  const handleTriggerCheatingLog = async (details: string) => {
-    setTabSwitchAlert((prev) => {
-      const nextCount = prev.count + 1;
-      return { show: true, count: nextCount };
-    });
-
-    try {
-      if (examAttemptId) {
-        await lmsService.logCheating(examAttemptId, {
-          event: 'TAB_SWITCH',
-          details,
-        });
-      }
-    } catch {
-      // fallback
-    }
-  };
+  }, [isExamRunning, handleTriggerCheatingLog]);
 
   const handleStartExamPrompt = (quiz: QuizData) => {
     setActiveQuiz(quiz);
-    if (quiz.password) {
+    if (quiz.password && isStudent) {
       setQuizPasswordInput('');
       setShowPasswordModal(true);
     } else {
@@ -291,46 +343,9 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
     }
   };
 
-  const handleAutoSubmitExam = () => {
-    handleSubmitExam(true);
-  };
-
-  const handleSubmitExam = async (isTimeOut = false) => {
-    if (!isTimeOut && !window.confirm('Bạn có chắc chắn muốn nộp bài thi? Không thể thay đổi đáp án sau khi nộp.')) {
-      return;
-    }
-
-    setIsExamRunning(false);
-
-    try {
-      if (examAttemptId) {
-        await lmsService.submitQuiz(examAttemptId);
-      }
-    } catch {
-      // fallback
-    }
-
-    // Compute score based on questions
-    let correctCount = 0;
-    questions.forEach((q) => {
-      if (studentAnswers[q.id!] === q.answer) {
-        correctCount++;
-      }
-    });
-
-    const score = Math.round((correctCount / questions.length) * 100) / 10;
-    setExamResult({
-      score,
-      totalQuestions: questions.length,
-      correctCount,
-      passed: score >= (activeQuiz?.passingScore || 5.0),
-      tabSwitches: tabSwitchAlert.count,
-    });
-  };
-
   const handleReopenAttempt = async (studentId: string) => {
     try {
-      await lmsService.reopenQuizAttempt('quiz-01', studentId);
+      await lmsService.reopenQuizAttempt(quizzes[0]?.id || 'quiz-01', studentId);
     } catch {
       // fallback
     }
@@ -338,6 +353,67 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
       prev.map((s) => (s.studentId === studentId ? { ...s, status: 'REOPENED', tabSwitchCount: 0 } : s))
     );
     alert('Đã mở lại lượt thi thành công cho sinh viên!');
+  };
+
+  const handleCreateQuizSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const created: QuizData = {
+      ...newQuizForm,
+      classId,
+      id: `quiz-${Date.now()}`,
+    };
+    try {
+      const res = await lmsService.createQuiz(created);
+      if (res?.data?.id) created.id = res.data.id;
+    } catch {
+      // fallback
+    }
+    setQuizzes((prev) => [created, ...prev]);
+    setNewQuizForm({
+      classId,
+      title: '',
+      description: '',
+      durationMinutes: 15,
+      openTime: '',
+      closeTime: '',
+      password: '',
+      maxAttempts: 1,
+      passingScore: 5.0,
+      shuffleQuestions: true,
+      shuffleOptions: true,
+    });
+    setShowCreateQuizModal(false);
+  };
+
+  const handleAddQuestionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const opts = newQuestionForm.options || ['', '', '', ''];
+    const selectedAnswer = opts[correctOptionIdx]?.trim() || newQuestionForm.answer.trim();
+    const created: QuestionBankData = {
+      ...newQuestionForm,
+      id: `qb-${Date.now()}`,
+      title: newQuestionForm.title || newQuestionForm.content.slice(0, 40),
+      options: opts,
+      answer: selectedAnswer,
+    };
+    try {
+      const res = await lmsService.addQuestionBank(created);
+      if (res?.data?.id) created.id = res.data.id;
+    } catch {
+      // fallback
+    }
+    setQuestions((prev) => [...prev, created]);
+    setNewQuestionForm({
+      courseId: 'course-it-01',
+      title: '',
+      chapter: 'Chương 1',
+      difficulty: 'MEDIUM',
+      content: '',
+      options: ['', '', '', ''],
+      answer: '',
+    });
+    setCorrectOptionIdx(0);
+    setShowAddQuestionModal(false);
   };
 
   const formatTimer = (seconds: number) => {
@@ -348,7 +424,7 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
 
   return (
     <div className="space-y-6">
-      {/* FULLSCREEN EXAM RUNNER FOR STUDENT */}
+      {/* FULLSCREEN EXAM RUNNER FOR STUDENT / PREVIEW */}
       {isExamRunning && activeQuiz && (
         <div className="fixed inset-0 z-50 bg-[#f8fafc] flex flex-col animate-in fade-in">
           {/* Exam Header */}
@@ -360,7 +436,7 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
               <div>
                 <h3 className="text-sm font-bold text-gray-900">{activeQuiz.title}</h3>
                 <span className="text-[11px] text-gray-400 font-medium">
-                  {autoSaveStatus} • Thí sinh: {user?.fullName || 'Sinh viên'}
+                  {autoSaveStatus} • Thí sinh: {user?.profile?.fullName || user?.fullName || user?.username || 'Sinh viên'}
                 </span>
               </div>
             </div>
@@ -677,15 +753,13 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
               <div className="flex items-center justify-between pt-1">
                 <span className="text-[11px] text-gray-400">Đảo đề ngẫu nhiên ✓</span>
 
-                {isStudent && (
-                  <button
-                    onClick={() => handleStartExamPrompt(quiz)}
-                    className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition cursor-pointer shadow-xs"
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                    <span>Bắt Đầu Làm Bài</span>
-                  </button>
-                )}
+                <button
+                  onClick={() => handleStartExamPrompt(quiz)}
+                  className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition cursor-pointer shadow-xs"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  <span>{isStudent ? 'Bắt Đầu Làm Bài' : 'Thi Thử / Xem Trước'}</span>
+                </button>
               </div>
             </div>
           ))}
@@ -859,14 +933,7 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
               </button>
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setQuizzes((prev) => [{ ...newQuizForm, id: `quiz-${Date.now()}` }, ...prev]);
-                setShowCreateQuizModal(false);
-              }}
-              className="mt-4 space-y-4 text-xs"
-            >
+            <form onSubmit={handleCreateQuizSubmit} className="mt-4 space-y-4 text-xs">
               <div>
                 <label className="font-semibold text-gray-700 block mb-1">Tiêu Đề Bài Thi / Quiz</label>
                 <input
@@ -879,7 +946,18 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Mô Tả / Quy Định Phòng Thi</label>
+                <textarea
+                  rows={2}
+                  placeholder="Hướng dẫn làm bài cho sinh viên..."
+                  value={newQuizForm.description || ''}
+                  onChange={(e) => setNewQuizForm({ ...newQuizForm, description: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 p-2.5 outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="font-semibold text-gray-700 block mb-1">Thời lượng (Phút)</label>
                   <input
@@ -895,15 +973,43 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
                   />
                 </div>
                 <div>
-                  <label className="font-semibold text-gray-700 block mb-1">Mật khẩu ca thi (Tùy chọn)</label>
+                  <label className="font-semibold text-gray-700 block mb-1">Số lượt thi tối đa</label>
                   <input
-                    type="text"
-                    placeholder="Mã phòng thi..."
-                    value={newQuizForm.password}
-                    onChange={(e) => setNewQuizForm({ ...newQuizForm, password: e.target.value })}
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={newQuizForm.maxAttempts || 1}
+                    onChange={(e) =>
+                      setNewQuizForm({ ...newQuizForm, maxAttempts: parseInt(e.target.value) || 1 })
+                    }
                     className="w-full rounded-lg border border-gray-200 p-2 outline-none"
                   />
                 </div>
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Điểm đạt (/10)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="1"
+                    max="10"
+                    value={newQuizForm.passingScore || 5.0}
+                    onChange={(e) =>
+                      setNewQuizForm({ ...newQuizForm, passingScore: parseFloat(e.target.value) || 5.0 })
+                    }
+                    className="w-full rounded-lg border border-gray-200 p-2 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Mật khẩu ca thi (Để trống nếu không khóa)</label>
+                <input
+                  type="text"
+                  placeholder="Mã phòng thi..."
+                  value={newQuizForm.password}
+                  onChange={(e) => setNewQuizForm({ ...newQuizForm, password: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 p-2 outline-none"
+                />
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
@@ -940,14 +1046,7 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
               </button>
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setQuestions((prev) => [...prev, { ...newQuestionForm, id: `qb-${Date.now()}` }]);
-                setShowAddQuestionModal(false);
-              }}
-              className="mt-4 space-y-4 text-xs"
-            >
+            <form onSubmit={handleAddQuestionSubmit} className="mt-4 space-y-4 text-xs">
               <div>
                 <label className="font-semibold text-gray-700 block mb-1">Nội dung câu hỏi</label>
                 <textarea
@@ -985,16 +1084,40 @@ export const LmsQuizzes: React.FC<LmsQuizzesProps> = ({ classId, user }) => {
                 </div>
               </div>
 
-              <div>
-                <label className="font-semibold text-gray-700 block mb-1">Đáp án đúng (Chính xác)</label>
-                <input
-                  type="text"
-                  placeholder="Nhập nội dung đáp án đúng..."
-                  value={newQuestionForm.answer}
-                  onChange={(e) => setNewQuestionForm({ ...newQuestionForm, answer: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 p-2 outline-none"
-                  required
-                />
+              {/* 4 Options A, B, C, D */}
+              <div className="space-y-2.5 rounded-xl bg-gray-50 p-3.5 border border-gray-100">
+                <label className="font-bold text-gray-700 block">
+                  Các phương án lựa chọn (Tích chọn đáp án đúng):
+                </label>
+                {[0, 1, 2, 3].map((idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="correctOption"
+                      checked={correctOptionIdx === idx}
+                      onChange={() => setCorrectOptionIdx(idx)}
+                      className="h-4 w-4 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      title="Chọn làm đáp án đúng"
+                    />
+                    <span className="w-5 font-bold text-gray-700">{String.fromCharCode(65 + idx)}.</span>
+                    <input
+                      type="text"
+                      placeholder={`Nhập phương án ${String.fromCharCode(65 + idx)}...`}
+                      value={newQuestionForm.options?.[idx] || ''}
+                      onChange={(e) => {
+                        const nextOpts = [...(newQuestionForm.options || ['', '', '', ''])];
+                        nextOpts[idx] = e.target.value;
+                        setNewQuestionForm({
+                          ...newQuestionForm,
+                          options: nextOpts,
+                          answer: nextOpts[correctOptionIdx] || '',
+                        });
+                      }}
+                      className="flex-1 rounded-lg border border-gray-200 bg-white p-2 outline-none focus:border-blue-500"
+                      required
+                    />
+                  </div>
+                ))}
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">

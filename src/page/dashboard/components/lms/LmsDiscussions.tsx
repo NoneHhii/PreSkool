@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   lmsService,
   type ForumThread,
@@ -44,7 +44,7 @@ export const LmsDiscussions: React.FC<LmsDiscussionsProps> = ({ classId, user })
       isResolved: true,
       votes: 12,
       hasVoted: false,
-      commentCount: 4,
+      commentCount: 2,
       createdAt: '2026-10-24T14:30:00Z',
     },
     {
@@ -59,12 +59,12 @@ export const LmsDiscussions: React.FC<LmsDiscussionsProps> = ({ classId, user })
       isResolved: false,
       votes: 8,
       hasVoted: true,
-      commentCount: 2,
+      commentCount: 1,
       createdAt: '2026-10-25T09:15:00Z',
     },
   ]);
 
-  // Demo Comments for active thread modal
+  // Demo Comments for threads
   const [selectedThread, setSelectedThread] = useState<ForumThread | null>(null);
   const [comments, setComments] = useState<ForumComment[]>([
     {
@@ -85,6 +85,16 @@ export const LmsDiscussions: React.FC<LmsDiscussionsProps> = ({ classId, user })
       content: 'Cảm ơn thầy, em cũng gặp lỗi tương tự và áp dụng đã chạy mượt mà!',
       isResolvedAnswer: false,
       createdAt: '2026-10-24T17:20:00Z',
+    },
+    {
+      id: 'com-3',
+      threadId: 'th-2',
+      authorName: 'TS. Nguyễn Văn Hùng',
+      authorRole: 'TEACHER',
+      content:
+        'Đối với đồ án môn học có yêu cầu bảo mật cao, em nên dùng cặp Access Token (ngắn hạn) + Refresh Token lưu trong Redis để dễ dàng thu hồi phiên đăng nhập khi cần.',
+      isResolvedAnswer: false,
+      createdAt: '2026-10-25T10:15:00Z',
     },
   ]);
   const [newCommentText, setNewCommentText] = useState('');
@@ -120,6 +130,28 @@ export const LmsDiscussions: React.FC<LmsDiscussionsProps> = ({ classId, user })
     },
   ]);
 
+  useEffect(() => {
+    const fetchDiscussions = async () => {
+      try {
+        const [thRes, roomRes] = await Promise.all([
+          lmsService.getForumThreads(classId).catch(() => null),
+          lmsService.getVirtualClassrooms(classId).catch(() => null),
+        ]);
+        const thData = thRes?.data?.data || thRes?.data;
+        if (Array.isArray(thData) && thData.length > 0) {
+          setThreads(thData);
+        }
+        const roomData = roomRes?.data?.data || roomRes?.data;
+        if (Array.isArray(roomData) && roomData.length > 0) {
+          setRooms(roomData);
+        }
+      } catch {
+        // fallback demo data
+      }
+    };
+    fetchDiscussions();
+  }, [classId]);
+
   // Modals
   const [showNewThreadModal, setShowNewThreadModal] = useState(false);
   const [threadTitle, setThreadTitle] = useState('');
@@ -134,6 +166,10 @@ export const LmsDiscussions: React.FC<LmsDiscussionsProps> = ({ classId, user })
     startTime: '',
     endTime: '',
   });
+
+  // Add Recording Modal
+  const [recordingRoomId, setRecordingRoomId] = useState<string | null>(null);
+  const [recForm, setRecForm] = useState({ title: '', url: '', duration: '1h 30m' });
 
   const handleVoteThread = async (threadId: string) => {
     setThreads((prev) =>
@@ -202,6 +238,7 @@ export const LmsDiscussions: React.FC<LmsDiscussionsProps> = ({ classId, user })
       prev.map((c) => ({ ...c, isResolvedAnswer: c.id === commentId ? true : c.isResolvedAnswer }))
     );
     if (selectedThread) {
+      setSelectedThread({ ...selectedThread, isResolved: true });
       setThreads((prev) =>
         prev.map((t) => (t.id === selectedThread.id ? { ...t, isResolved: true } : t))
       );
@@ -251,8 +288,51 @@ export const LmsDiscussions: React.FC<LmsDiscussionsProps> = ({ classId, user })
     }
 
     setRooms((prev) => [...prev, newR]);
+    setRoomForm({
+      classId,
+      title: '',
+      platform: 'JITSI',
+      meetingUrl: '',
+      startTime: '',
+      endTime: '',
+    });
     setShowCreateRoomModal(false);
   };
+
+  const handleAddRecording = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recordingRoomId || !recForm.title.trim() || !recForm.url.trim()) return;
+
+    try {
+      await lmsService.updateRecording(recordingRoomId, {
+        recordingUrl: recForm.url,
+        title: recForm.title,
+      });
+    } catch {
+      // fallback
+    }
+
+    const newRec = {
+      id: `rec-${Date.now()}`,
+      title: recForm.title,
+      url: recForm.url,
+      duration: recForm.duration || '1h 30m',
+    };
+
+    setRooms((prev) =>
+      prev.map((r) =>
+        r.id === recordingRoomId
+          ? { ...r, recordings: [...(r.recordings || []), newRec] }
+          : r
+      )
+    );
+    setRecForm({ title: '', url: '', duration: '1h 30m' });
+    setRecordingRoomId(null);
+  };
+
+  const activeThreadComments = selectedThread
+    ? comments.filter((c) => c.threadId === selectedThread.id)
+    : [];
 
   return (
     <div className="space-y-6">
@@ -387,13 +467,23 @@ export const LmsDiscussions: React.FC<LmsDiscussionsProps> = ({ classId, user })
                 className="rounded-2xl border border-gray-100 bg-white p-6 shadow-xs space-y-4 hover:border-gray-200 transition"
               >
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-lg bg-indigo-50 px-2.5 py-0.5 text-[10px] font-bold text-indigo-700 uppercase">
-                      {room.platform}
-                    </span>
-                    <span className="rounded-lg bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                      Sắp diễn ra
-                    </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-lg bg-indigo-50 px-2.5 py-0.5 text-[10px] font-bold text-indigo-700 uppercase">
+                        {room.platform}
+                      </span>
+                      <span className="rounded-lg bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                        Sắp diễn ra
+                      </span>
+                    </div>
+                    {(isAdmin || isTeacher) && room.id && (
+                      <button
+                        onClick={() => setRecordingRoomId(room.id!)}
+                        className="text-[11px] font-semibold text-blue-600 hover:underline cursor-pointer"
+                      >
+                        + Gắn Video Ghi Hình
+                      </button>
+                    )}
                   </div>
                   <h4 className="text-sm font-bold text-gray-900">{room.title}</h4>
                 </div>
@@ -493,52 +583,58 @@ export const LmsDiscussions: React.FC<LmsDiscussionsProps> = ({ classId, user })
             {/* Comments List */}
             <div className="space-y-3">
               <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                Bình Luận & Câu Trả Lời ({comments.length})
+                Bình Luận & Câu Trả Lời ({activeThreadComments.length})
               </h4>
 
-              {comments.map((c) => (
-                <div
-                  key={c.id}
-                  className={`rounded-xl p-4 border text-xs space-y-2 transition ${
-                    c.isResolvedAnswer
-                      ? 'border-emerald-300 bg-emerald-50/50 shadow-2xs'
-                      : 'border-gray-100 bg-white'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-gray-800">{c.authorName}</span>
-                      <span
-                        className={`rounded px-1.5 py-0.2 text-[9px] font-bold ${
-                          c.authorRole === 'TEACHER' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
-                        }`}
-                      >
-                        {c.authorRole}
-                      </span>
-                      <span className="text-[10px] text-gray-400">
-                        {new Date(c.createdAt).toLocaleTimeString('vi-VN')}
-                      </span>
+              {activeThreadComments.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-200 p-4 text-center text-xs text-gray-400">
+                  Chưa có bình luận nào cho câu hỏi này. Hãy là người đầu tiên phản hồi!
+                </div>
+              ) : (
+                activeThreadComments.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`rounded-xl p-4 border text-xs space-y-2 transition ${
+                      c.isResolvedAnswer
+                        ? 'border-emerald-300 bg-emerald-50/50 shadow-2xs'
+                        : 'border-gray-100 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-gray-800">{c.authorName}</span>
+                        <span
+                          className={`rounded px-1.5 py-0.2 text-[9px] font-bold ${
+                            c.authorRole === 'TEACHER' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {c.authorRole}
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                          {new Date(c.createdAt).toLocaleTimeString('vi-VN')}
+                        </span>
+                      </div>
+
+                      {c.isResolvedAnswer ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                          <CheckCircle className="h-3 w-3" /> Đáp án chính xác
+                        </span>
+                      ) : (
+                        (isAdmin || isTeacher) && (
+                          <button
+                            onClick={() => handleMarkResolved(c.id)}
+                            className="text-[11px] font-semibold text-blue-600 hover:underline cursor-pointer"
+                          >
+                            Đánh dấu đúng
+                          </button>
+                        )
+                      )}
                     </div>
 
-                    {c.isResolvedAnswer ? (
-                      <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                        <CheckCircle className="h-3 w-3" /> Đáp án chính xác
-                      </span>
-                    ) : (
-                      (isAdmin || isTeacher) && (
-                        <button
-                          onClick={() => handleMarkResolved(c.id)}
-                          className="text-[11px] font-semibold text-blue-600 hover:underline cursor-pointer"
-                        >
-                          Đánh dấu đúng
-                        </button>
-                      )
-                    )}
+                    <p className="text-gray-700 leading-relaxed">{c.content}</p>
                   </div>
-
-                  <p className="text-gray-700 leading-relaxed">{c.content}</p>
-                </div>
-              ))}
+                ))
+              )}
             </div>
 
             {/* Add Comment Input */}
@@ -710,6 +806,76 @@ export const LmsDiscussions: React.FC<LmsDiscussionsProps> = ({ classId, user })
                   className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 cursor-pointer"
                 >
                   Lưu & Lên Lịch
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Gắn Video Ghi Hình */}
+      {recordingRoomId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl animate-in fade-in">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h3 className="text-base font-bold text-gray-900">Gắn Video Ghi Hình Buổi Học</h3>
+              <button
+                onClick={() => setRecordingRoomId(null)}
+                className="text-gray-400 hover:text-gray-600 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddRecording} className="mt-4 space-y-4 text-xs">
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Tiêu đề Video</label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Video Ghi hình Buổi 2: Tối ưu SQL..."
+                  value={recForm.title}
+                  onChange={(e) => setRecForm({ ...recForm, title: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 p-2.5 outline-none focus:border-blue-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Đường dẫn Video (URL)</label>
+                <input
+                  type="url"
+                  placeholder="https://storage.preskool.edu.vn/recordings/..."
+                  value={recForm.url}
+                  onChange={(e) => setRecForm({ ...recForm, url: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 p-2.5 outline-none focus:border-blue-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Thời lượng</label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: 1h 45m"
+                  value={recForm.duration}
+                  onChange={(e) => setRecForm({ ...recForm, duration: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 p-2.5 outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRecordingRoomId(null)}
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 cursor-pointer"
+                >
+                  Lưu Video
                 </button>
               </div>
             </form>
