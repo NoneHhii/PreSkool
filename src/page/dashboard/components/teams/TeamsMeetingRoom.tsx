@@ -721,7 +721,7 @@ export const TeamsMeetingRoom: React.FC<TeamsMeetingRoomProps> = ({
   };
 
   // Raise / Lower hand
-  const handleToggleRaiseHand = () => {
+  const handleToggleRaiseHand = async () => {
     if (!hasRaisedHand) {
       setHasRaisedHand(true);
       socketService.emit('raise_hand', {
@@ -730,9 +730,19 @@ export const TeamsMeetingRoom: React.FC<TeamsMeetingRoomProps> = ({
       });
     } else {
       setHasRaisedHand(false);
+      try {
+        await teamsService.lowerHand(meeting.id);
+      } catch {
+        // fallback
+      }
       socketService.emit('lower_hand', {
         meetingId: meetingKey,
+        userId: user?.id,
+        userName: user?.fullName || 'Bạn',
       });
+      setHandsQueue((prev) =>
+        prev.filter((h) => h.userId !== user?.id && h.userName !== (user?.fullName || 'Bạn'))
+      );
     }
   };
 
@@ -878,9 +888,22 @@ export const TeamsMeetingRoom: React.FC<TeamsMeetingRoomProps> = ({
     setSavingRollCall(false);
   };
 
-  const handleVotePoll = (option: string) => {
+  const handleVotePoll = async (option: string) => {
     setUserVotedOption(option);
     if (!activePoll) return;
+
+    try {
+      await teamsService.votePoll(activePoll.id, option);
+    } catch {
+      // fallback
+    }
+
+    socketService.emit('live_poll_vote', {
+      meetingId: meetingKey,
+      pollId: activePoll.id,
+      option,
+    });
+
     const currentVotes = activePoll.results?.[option] || 0;
     const updatedPoll = {
       ...activePoll,

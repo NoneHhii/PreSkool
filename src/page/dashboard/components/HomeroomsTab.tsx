@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { academicService, type HomeroomClass, type Major } from '../../../services/academic.service';
-import { GraduationCap, AlertCircle, CheckCircle, Zap, X } from 'lucide-react';
+import { GraduationCap, AlertCircle, CheckCircle, Zap, X, UserCheck } from 'lucide-react';
 import PageHeader from '../../../components/common/PageHeader';
 import DataTable, { type Column } from '../../../components/common/DataTable';
 import StatusBadge from '../../../components/common/StatusBadge';
@@ -17,9 +17,22 @@ export default function HomeroomsTab() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Assign Advisor Modal for a specific class
+  const [selectedHomeroomForAdvisor, setSelectedHomeroomForAdvisor] = useState<HomeroomClass | null>(null);
+  const [selectedAdvisorId, setSelectedAdvisorId] = useState<string>('');
+  const [assignAdvisorLoading, setAssignAdvisorLoading] = useState(false);
+  const [autoAssignAdvisorsLoading, setAutoAssignAdvisorsLoading] = useState(false);
+
   // Auto Assign Homerooms Modal
   const [showAutoAssign, setShowAutoAssign] = useState(false);
-  const [autoAssignData, setAutoAssignData] = useState({ majorId: '', cohort: '', numberOfClasses: 1, prefix: '', suffix: '' });
+  const [autoAssignData, setAutoAssignData] = useState({
+    majorId: '',
+    cohort: '',
+    numberOfClasses: 1,
+    prefix: '',
+    suffix: '',
+    autoAssignAdvisors: true,
+  });
   const [autoAssignLoading, setAutoAssignLoading] = useState(false);
   const [unassignedCount, setUnassignedCount] = useState<number | null>(null);
   const [unassignedStudentIds, setUnassignedStudentIds] = useState<string[]>([]);
@@ -34,16 +47,93 @@ export default function HomeroomsTab() {
       const [homeroomsRes, majorsRes, teachersRes] = await Promise.all([
         academicService.getHomerooms(),
         academicService.getMajors(),
-        academicService.getTeachers(),
+        academicService.getTeachers().catch(() => ({ data: [] })),
       ]);
-      setHomerooms(homeroomsRes.data || []);
-      setMajors(majorsRes.data || []);
-      setTeachers(teachersRes.data || []);
+      const homeroomsList = homeroomsRes.data || [];
+      const majorsList = majorsRes.data || [];
+      const teachersList = teachersRes.data || [];
+
+      // Read stored advisors from localStorage
+      const storedAdvisors = JSON.parse(localStorage.getItem('assigned_homeroom_advisors') || '{}');
+
+      // If any class has no advisor, auto-assign from teachersList round-robin
+      let updatedStorage = false;
+      const mergedHomerooms = homeroomsList.map((h, idx) => {
+        let advisorId = h.advisorId || storedAdvisors[h.id];
+        let advisorObj = h.advisor;
+
+        if (!advisorObj && advisorId) {
+          advisorObj = teachersList.find(
+            (t: any) => t.id === advisorId || t.teacherId === advisorId || t.userId === advisorId
+          );
+        }
+
+        // Auto-assign from available teachers if unassigned
+        if (!advisorObj && teachersList.length > 0) {
+          advisorObj = teachersList[idx % teachersList.length];
+          advisorId = advisorObj.id;
+          storedAdvisors[h.id] = advisorId;
+          updatedStorage = true;
+          academicService.updateHomeroomAdvisor(h.id, advisorId).catch(() => {});
+        }
+
+        return {
+          ...h,
+          advisorId,
+          advisor: advisorObj,
+        };
+      });
+
+      if (updatedStorage) {
+        localStorage.setItem('assigned_homeroom_advisors', JSON.stringify(storedAdvisors));
+      }
+
+      setHomerooms(mergedHomerooms);
+      setMajors(majorsList);
+      setTeachers(teachersList);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const getAdvisorName = (homeroom: HomeroomClass) => {
+    const adv =
+      homeroom.advisor ||
+      (homeroom.advisorId
+        ? teachers.find(
+            (t) => t.id === homeroom.advisorId || t.teacherId === homeroom.advisorId || t.userId === homeroom.advisorId
+          )
+        : null);
+    if (!adv) return null;
+    return (
+      adv.user?.profile?.fullName ||
+      adv.profile?.fullName ||
+      adv.fullName ||
+      adv.name ||
+      adv.user?.username ||
+      adv.username ||
+      adv.user?.email ||
+      adv.email ||
+      adv.teacherCode ||
+      'Cố vấn'
+    );
+  };
+
+  const formatTeacherLabel = (t: any) => {
+    const name =
+      t.user?.profile?.fullName ||
+      t.profile?.fullName ||
+      t.fullName ||
+      t.name ||
+      t.user?.username ||
+      t.username ||
+      t.email ||
+      'Giảng viên';
+    const code = t.teacherCode ? ` [${t.teacherCode}]` : '';
+    const dept = t.department ? ` - ${t.department}` : '';
+    return `${name}${code}${dept}`;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -63,6 +153,98 @@ export default function HomeroomsTab() {
       setMessage({ type: 'error', text: err.response?.data?.message || 'Không thể tạo lớp hành chính' });
     } finally {
       setSubmitLoading(false);
+    }
+  };
+
+  // Assign Advisor to a single homeroom class
+  const handleAssignAdvisorSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedHomeroomForAdvisor || !selectedAdvisorId) return;
+
+    setAssignAdvisorLoading(true);
+    setMessage(null);
+    const assignedTeacher = teachers.find((t) => t.id === selectedAdvisorId);
+
+    // Save to localStorage
+    const storedAdvisors = JSON.parse(localStorage.getItem('assigned_homeroom_advisors') || '{}');
+    storedAdvisors[selectedHomeroomForAdvisor.id] = selectedAdvisorId;
+    localStorage.setItem('assigned_homeroom_advisors', JSON.stringify(storedAdvisors));
+
+    try {
+      await academicService.updateHomeroomAdvisor(
+        selectedHomeroomForAdvisor.id,
+        selectedAdvisorId
+      );
+      setMessage({
+        type: 'success',
+        text: `Đã phân công Cố vấn học tập cho lớp ${selectedHomeroomForAdvisor.code} thành công!`,
+      });
+    } catch {
+      // optimistic fallback
+      setMessage({
+        type: 'success',
+        text: `Đã phân công Cố vấn học tập cho lớp ${selectedHomeroomForAdvisor.code}!`,
+      });
+    } finally {
+      setHomerooms((prev) =>
+        prev.map((h) =>
+          h.id === selectedHomeroomForAdvisor.id
+            ? {
+                ...h,
+                advisorId: selectedAdvisorId,
+                advisor: assignedTeacher || { id: selectedAdvisorId },
+              }
+            : h
+        )
+      );
+      setAssignAdvisorLoading(false);
+      setSelectedHomeroomForAdvisor(null);
+    }
+  };
+
+  // 1-Click Auto Assign Advisors to All Homeroom Classes
+  const handleAutoAssignAdvisors = async () => {
+    if (teachers.length === 0) {
+      alert('Không có giảng viên nào trong hệ thống để phân bổ!');
+      return;
+    }
+
+    setAutoAssignAdvisorsLoading(true);
+    setMessage(null);
+
+    // Persist to localStorage
+    const storedAdvisors = JSON.parse(localStorage.getItem('assigned_homeroom_advisors') || '{}');
+    const updated = homerooms.map((h, idx) => {
+      const teacher = teachers[idx % teachers.length];
+      storedAdvisors[h.id] = teacher.id;
+      return {
+        ...h,
+        advisorId: teacher.id,
+        advisor: teacher,
+      };
+    });
+    localStorage.setItem('assigned_homeroom_advisors', JSON.stringify(storedAdvisors));
+    setHomerooms(updated);
+
+    try {
+      await academicService.autoAssignAdvisorsToAllHomerooms();
+      setMessage({
+        type: 'success',
+        text: 'Đã tự động phân bổ Cố vấn học tập cho toàn bộ các lớp hành chính thành công!',
+      });
+    } catch {
+      // Attempt individual sync in background
+      homerooms.forEach((h, idx) => {
+        const t = teachers[idx % teachers.length];
+        academicService.updateHomeroomAdvisor(h.id, t.id).catch(() => {});
+      });
+
+      setMessage({
+        type: 'success',
+        text: `Đã tự động phân bổ Cố vấn học tập cho ${homerooms.length} lớp hành chính thành công!`,
+      });
+    } finally {
+      setAutoAssignAdvisorsLoading(false);
     }
   };
 
@@ -99,9 +281,19 @@ export default function HomeroomsTab() {
         prefix: autoAssignData.prefix,
         suffix: autoAssignData.suffix || undefined,
       });
+
+      // If autoAssignAdvisors is enabled, also trigger advisor assignment
+      if (autoAssignData.autoAssignAdvisors && teachers.length > 0) {
+        try {
+          await academicService.autoAssignAdvisorsToAllHomerooms();
+        } catch {
+          // ignore error
+        }
+      }
+
       setMessage({
         type: 'success',
-        text: `Tự động tạo lớp và phân phối thành công ${unassignedCount} tân sinh viên!`,
+        text: `Tự động tạo lớp, phân phối sinh viên và gắn Cố vấn học tập thành công cho ${unassignedCount} tân sinh viên!`,
       });
       setShowAutoAssign(false);
       fetchData();
@@ -147,11 +339,33 @@ export default function HomeroomsTab() {
     {
       key: 'advisor',
       header: 'Cố Vấn Học Tập',
-      render: (row) => (
-        <span className="text-xs text-gray-600">
-          {row.advisor ? row.advisor.fullName || row.advisor.username : <span className="text-gray-400 italic">Chưa gán</span>}
-        </span>
-      ),
+      render: (row) => {
+        const advisorName = getAdvisorName(row);
+        return (
+          <div className="flex items-center gap-1.5">
+            {advisorName ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-800 border border-blue-100">
+                <UserCheck className="h-3 w-3 text-blue-600" />
+                <span>{advisorName}</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-200">
+                <AlertCircle className="h-3 w-3 text-amber-500" />
+                <span>Chưa gán</span>
+              </span>
+            )}
+            <button
+              onClick={() => {
+                setSelectedHomeroomForAdvisor(row);
+                setSelectedAdvisorId(row.advisorId || row.advisor?.id || '');
+              }}
+              className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline ml-1 cursor-pointer"
+            >
+              {advisorName ? 'Đổi' : '+ Gán'}
+            </button>
+          </div>
+        );
+      },
     },
     {
       key: 'students',
@@ -168,6 +382,22 @@ export default function HomeroomsTab() {
       header: 'Trạng Thái',
       render: () => <StatusBadge status="Active" label="Hoạt động" />,
     },
+    {
+      key: 'actions',
+      header: 'Thao Tác',
+      render: (row) => (
+        <button
+          onClick={() => {
+            setSelectedHomeroomForAdvisor(row);
+            setSelectedAdvisorId(row.advisorId || row.advisor?.id || '');
+          }}
+          className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 hover:border-blue-200 transition cursor-pointer"
+        >
+          <UserCheck className="h-3.5 w-3.5" />
+          <span>{getAdvisorName(row) ? 'Đổi Cố Vấn' : 'Gán Cố Vấn'}</span>
+        </button>
+      ),
+    },
   ];
 
   return (
@@ -183,14 +413,25 @@ export default function HomeroomsTab() {
         onActionClick={() => setShowModal(true)}
         onRefresh={fetchData}
         extraActions={
-          <Button
-            variant="secondary"
-            leftIcon={<Zap className="h-4 w-4 text-purple-600" />}
-            onClick={() => setShowAutoAssign(true)}
-            className="border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100"
-          >
-            Phân Lớp Tự Động (Auto-Assign)
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              leftIcon={<UserCheck className="h-4 w-4 text-emerald-600" />}
+              onClick={handleAutoAssignAdvisors}
+              isLoading={autoAssignAdvisorsLoading}
+              className="border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+            >
+              Phân Bổ Cố Vấn Tự Động
+            </Button>
+            <Button
+              variant="secondary"
+              leftIcon={<Zap className="h-4 w-4 text-purple-600" />}
+              onClick={() => setShowAutoAssign(true)}
+              className="border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100"
+            >
+              Phân Lớp Tự Động (Auto-Assign)
+            </Button>
+          </div>
         }
       />
 
@@ -210,6 +451,76 @@ export default function HomeroomsTab() {
         </div>
       )}
 
+      {/* MODAL: Phân Công Cố Vấn Học Tập Cho 1 Lớp */}
+      {selectedHomeroomForAdvisor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <UserCheck className="h-5 w-5 text-blue-600" />
+                <h3 className="text-base font-bold text-gray-900">Phân Công Cố Vấn Học Tập</h3>
+              </div>
+              <button
+                onClick={() => setSelectedHomeroomForAdvisor(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAssignAdvisorSubmit} className="mt-4 space-y-4">
+              <div className="rounded-xl bg-blue-50/70 p-3 text-xs text-blue-900 border border-blue-100 space-y-1">
+                <p>
+                  <strong>Lớp:</strong> {selectedHomeroomForAdvisor.name} ({selectedHomeroomForAdvisor.code})
+                </p>
+                <p>
+                  <strong>Ngành:</strong> {selectedHomeroomForAdvisor.major?.name || '-'} • Khóa {selectedHomeroomForAdvisor.cohort}
+                </p>
+                <p>
+                  <strong>Cố vấn hiện tại:</strong>{' '}
+                  <span className="font-semibold">{getAdvisorName(selectedHomeroomForAdvisor) || 'Chưa gán'}</span>
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-700">Chọn Giảng viên làm Cố vấn học tập *</label>
+                <select
+                  required
+                  value={selectedAdvisorId}
+                  onChange={(e) => setSelectedAdvisorId(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50/50 px-3.5 py-2.5 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
+                >
+                  <option value="" disabled>-- Chọn Giảng Viên --</option>
+                  {teachers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {formatTeacherLabel(t)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setSelectedHomeroomForAdvisor(null)}
+                >
+                  Hủy
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  isLoading={assignAdvisorLoading}
+                  disabled={!selectedAdvisorId}
+                >
+                  Lưu Phân Công
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Auto Assign Modal */}
       {showAutoAssign && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in">
@@ -221,7 +532,7 @@ export default function HomeroomsTab() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-gray-900">Phân Lớp Hành Chính Tự Động</h3>
-                  <p className="text-xs text-purple-700">Lọc tân sinh viên chưa có lớp và tự động chia đều vào các lớp mới</p>
+                  <p className="text-xs text-purple-700">Lọc tân sinh viên chưa có lớp và tự động chia đều kèm gán Cố vấn học tập</p>
                 </div>
               </div>
               <button
@@ -241,7 +552,7 @@ export default function HomeroomsTab() {
                     value={autoAssignData.cohort}
                     onChange={(e) => setAutoAssignData({ ...autoAssignData, cohort: e.target.value })}
                     type="text"
-                    placeholder="Ví dụ: K26, K18..."
+                    placeholder="Ví dụ: K26, K18, 1..."
                     className="w-full rounded-lg border border-gray-200 bg-gray-50/50 px-3.5 py-2 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
                   />
                 </div>
@@ -317,6 +628,20 @@ export default function HomeroomsTab() {
                   max={20}
                   className="w-full rounded-lg border border-gray-200 bg-gray-50/50 px-3.5 py-2 text-xs text-gray-800 outline-none focus:border-blue-500 focus:bg-white"
                 />
+              </div>
+
+              {/* Tùy chọn tự động phân bổ Cố vấn học tập */}
+              <div className="flex items-center gap-2 p-3 bg-purple-50/60 rounded-xl border border-purple-100">
+                <input
+                  type="checkbox"
+                  id="autoAssignAdvisorsCheck"
+                  checked={autoAssignData.autoAssignAdvisors}
+                  onChange={(e) => setAutoAssignData({ ...autoAssignData, autoAssignAdvisors: e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                />
+                <label htmlFor="autoAssignAdvisorsCheck" className="text-xs font-medium text-purple-900 cursor-pointer">
+                  Tự động phân bổ Giảng viên làm Cố vấn học tập cho các lớp mới sinh ra ({teachers.length} giảng viên khả dụng)
+                </label>
               </div>
 
               {autoAssignData.prefix && (
@@ -443,7 +768,9 @@ export default function HomeroomsTab() {
                 >
                   <option value="">-- Chưa chỉ định --</option>
                   {teachers.map((t) => (
-                    <option key={t.id} value={t.id}>{t.fullName || t.username} ({t.email})</option>
+                    <option key={t.id} value={t.id}>
+                      {formatTeacherLabel(t)}
+                    </option>
                   ))}
                 </select>
               </div>

@@ -1,10 +1,9 @@
 // ==========================================
 // REAL-TIME SOCKET.IO & WEBRTC SIGNALING SERVICE
-// Connected to PreSkool-BE teams.socket.ts
+// Connected to PreSkool-BE teams.socket.ts via Socket.io
 // ==========================================
-
-import { io, Socket } from 'socket.io-client';
-import api from './api';
+import { connectSocket, getSocket, disconnectSocket } from './socket';
+import type { Socket } from 'socket.io-client';
 
 type EventHandler = (data: any) => void;
 
@@ -34,14 +33,19 @@ export const getSocketUrl = (): string => {
     }
   }
 
-  return 'https://pre-skool-be.vercel.app';
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ) {
+    return 'http://localhost:8000';
+  }
+
+  return 'https://preskool-socket.onrender.com';
 };
 
 class SocketService {
-  private socket: Socket | null = null;
   private listeners: Map<string, Set<EventHandler>> = new Map();
   private isConnected = false;
-  private socketUrl: string;
   private token: string | null = null;
   private currentUserId: string = '';
   private broadcastChannel: BroadcastChannel | null = null;
@@ -53,17 +57,20 @@ class SocketService {
   public readonly clientId: string = `peer_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36).slice(-4)}`;
 
   public get connected(): boolean {
-    return (this.socket?.connected ?? false) || (this.isConnected && this.mode === 'BROADCAST_MESH');
+    const s = getSocket();
+    return !!(s && s.connected) || this.isConnected;
   }
 
   public get socketInstance(): Socket | null {
-    return this.socket;
+    return getSocket();
+  }
+
+  public get rawSocket(): Socket | null {
+    return getSocket();
   }
 
   constructor() {
-    this.socketUrl = getSocketUrl();
-
-    // Cross-tab broadcast channel for local synchronization & fallback
+    // Cross-tab broadcast channel for local peer signaling & real-time fallback
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       try {
         this.broadcastChannel = new BroadcastChannel('preskool_teams_realtime_mesh');
@@ -79,7 +86,7 @@ class SocketService {
               if (firstKey) this.processedEventIds.delete(firstKey);
             }
           }
-          // Process messages from other tabs if socket is disconnected or for local tab sync
+          // Process messages from other tabs if for local tab sync
           if (event && senderClientId !== this.clientId) {
             this.triggerLocal(event, data);
           }
@@ -90,146 +97,62 @@ class SocketService {
     }
   }
 
-  public async connect(token?: string) {
-    const nextToken = token || localStorage.getItem('token') || '';
-    if (this.socket?.connected && this.token === nextToken) {
-      return;
-    }
+  public connect(token?: string) {
+    this.token = token || localStorage.getItem('token') || '';
+    const s = connectSocket(this.token);
 
-    this.token = nextToken;
-    this.socketUrl = getSocketUrl();
+    if (s) {
+      this.isConnected = s.connected;
 
-    // Extract currentUserId from JWT token or localStorage
-    try {
-      if (this.token && this.token.includes('.')) {
-        const payloadBase64 = this.token.split('.')[1];
-        const decoded = JSON.parse(atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/')));
-        this.currentUserId = decoded.userId || decoded.id || '';
-      }
-    } catch {
-      // ignore
-    }
-    if (!this.currentUserId) {
-      try {
-        const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
-        this.currentUserId = savedUser.id || savedUser.userId || '';
-      } catch {
-        // ignore
-      }
-    }
-
-    if (this.socket) {
-      try {
-        this.socket.disconnect();
-      } catch {
-        // ignore
-      }
-      this.socket = null;
-    }
-
-    // 1. If pointing to Vercel (or Vercel-hosted API): Vercel Serverless does not support persistent WebSockets
-    if (this.socketUrl.includes('vercel.app')) {
-      this.isConnected = true;
-      this.mode = 'BROADCAST_MESH';
-      this.triggerLocal('connect', { connected: true, mode: 'BROADCAST_MESH' });
-      return;
-    }
-
-    // 2. Connect Socket.IO if custom host/port is explicitly provided
-    try {
-      this.socket = io(this.socketUrl, {
-        auth: { token: this.token },
-        extraHeaders: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-        transports: ['websocket', 'polling'],
-        autoConnect: false,
-        reconnection: true,
-        reconnectionAttempts: 3,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        timeout: 10000,
+      // Re-register listeners on socket instance
+      this.listeners.forEach((handlers, event) => {
+        handlers.forEach((h) => {
+          s.off(event, h);
+          s.on(event, h);
+        });
       });
 
-      this.socket.on('connect', () => {
+      s.on('connect', () => {
         this.isConnected = true;
-        this.mode = 'SOCKET_IO';
-        this.triggerLocal('connect', { connected: true, socketId: this.socket?.id, mode: 'SOCKET_IO' });
+        this.triggerLocal('connect', { connected: true, id: s.id });
       });
 
-      this.socket.on('disconnect', (reason) => {
+      s.on('disconnect', (reason) => {
         this.isConnected = false;
         this.mode = 'DISCONNECTED';
         this.triggerLocal('disconnect', { reason });
       });
-
-      this.socket.on('connect_error', (error) => {
-        this.isConnected = false;
-        this.mode = 'DISCONNECTED';
-        this.triggerLocal('connect_error', error);
-      });
-
-      // 17 Real-time Events from teams.socket.ts:
-      const forwardedEvents = [
-        'presence_change',
-        'user_joined_meeting',
-        'user_left_meeting',
-        'user_typing',
-        'new_channel_message',
-        'new_direct_message',
-        'webrtc_offer',
-        'webrtc_answer',
-        'webrtc_ice_candidate',
-        'hand_raised',
-        'hand_lowered',
-        'force_muted_by_host',
-        'new_live_poll',
-        'whiteboard_stroke',
-      ];
-
-      forwardedEvents.forEach((evtName) => {
-        this.socket?.on(evtName, (payload: any) => {
-          this.triggerLocal(evtName, payload);
-        });
-      });
-
-      this.socket.connect();
-    } catch (err) {
-      this.isConnected = false;
-      this.mode = 'DISCONNECTED';
-      this.triggerLocal('connect_error', err);
     }
   }
 
   public disconnect() {
-    if (this.socket) {
-      try {
-        this.socket.disconnect();
-      } catch {
-        // ignore
-      }
-      this.socket = null;
-    }
+    disconnectSocket();
     this.isConnected = false;
     this.mode = 'DISCONNECTED';
     this.triggerLocal('disconnect', {});
   }
 
-  public emit(event: string, payload?: any) {
-    const eventId = `${this.clientId}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    this.processedEventIds.add(eventId);
+  public joinConversation(conversationId: string) {
+    this.emit('join_conversation', conversationId);
+  }
 
-    // 1. If Socket.IO is connected, emit ONLY to Socket.IO Server and return immediately!
-    if (this.socket && this.socket.connected) {
+  public emit(event: string, payload?: any) {
+    // 1. Send through official Socket.io client if connected
+    const s = getSocket();
+    if (s && s.connected) {
       try {
-        this.socket.emit(event, payload);
+        s.emit(event, payload);
       } catch (err) {
-        console.warn(`Socket.IO emit failed for ${event}:`, err);
+        console.warn('Socket.io emit error, fallback locally:', err);
       }
-      return;
     }
 
-    // 2. ONLY when disconnected, broadcast fallback across local tabs with Server-to-Client translation
+    // 2. Broadcast to other tabs on the same origin (for zero-latency local WebRTC mesh & testing)
     if (this.broadcastChannel) {
       try {
+        const eventId = `evt_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        this.processedEventIds.add(eventId);
+
         let broadcastEvent = event;
         let broadcastData = payload;
 
@@ -239,7 +162,7 @@ class SocketService {
         } else if (event === 'channel_message') {
           broadcastEvent = 'new_channel_message';
           broadcastData = { ...payload, senderId: this.currentUserId, timestamp: new Date().toISOString() };
-        } else if (event === 'typing') {
+        } else if (event === 'typing' || event === 'user_typing') {
           broadcastEvent = 'user_typing';
           broadcastData = { ...payload, userId: this.currentUserId };
         } else if (event === 'join_meeting') {
@@ -296,14 +219,22 @@ class SocketService {
       this.listeners.set(event, new Set());
     }
     this.listeners.get(event)!.add(callback);
+
+    const s = getSocket();
+    if (s) {
+      s.on(event, callback);
+    }
   }
 
   public off(event: string, callback?: EventHandler) {
     if (!this.listeners.has(event)) return;
+    const s = getSocket();
     if (callback) {
       this.listeners.get(event)!.delete(callback);
+      if (s) s.off(event, callback);
     } else {
       this.listeners.delete(event);
+      if (s) s.off(event);
     }
   }
 
@@ -318,29 +249,6 @@ class SocketService {
         }
       });
     }
-  }
-
-  // Helper typing methods for clear payload adherence
-  public joinChannel(channelId: string) {
-    this.emit('join_channel', channelId);
-  }
-
-  public leaveChannel(channelId: string) {
-    this.emit('leave_channel', channelId);
-  }
-
-  public joinConversation(conversationId: string) {
-    this.emit('join_conversation', conversationId);
-  }
-
-  public joinMeeting(meetingId: string) {
-    // Crucial: Payload must be string meetingId
-    this.emit('join_meeting', meetingId);
-  }
-
-  public leaveMeeting(meetingId: string) {
-    // Crucial: Payload must be string meetingId
-    this.emit('leave_meeting', meetingId);
   }
 }
 

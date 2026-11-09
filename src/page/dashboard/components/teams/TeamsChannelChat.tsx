@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   teamsService,
   type TeamData,
@@ -63,14 +63,15 @@ export const TeamsChannelChat: React.FC<TeamsChannelChatProps> = ({
   const [inputMessage, setInputMessage] = useState('');
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
 
-  // Typing
-  const [activeTypingUser, setActiveTypingUser] = useState<string | null>(null);
-
   // Code snippet modal
   const [showCodeInput, setShowCodeInput] = useState(false);
   const [codeLang, setCodeLang] = useState('typescript');
   const [codeBody, setCodeBody] = useState('');
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
+
+  // Typing indicators state
+  const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Files state - starts EMPTY (No fake data!)
   const [files, setFiles] = useState<ChannelFileItem[]>([]);
@@ -143,13 +144,18 @@ export const TeamsChannelChat: React.FC<TeamsChannelChatProps> = ({
     };
 
     // Listen for channel typing
-    const handleUserTyping = (data: { userId: string; userName: string; isTyping: boolean }) => {
+    const handleUserTyping = (data: { channelId?: string; userId: string; userName: string; isTyping: boolean }) => {
+      if (data.channelId && data.channelId !== channelKey && data.channelId !== channel.id) return;
       if (data.userId !== currentUserId) {
-        if (data.isTyping) {
-          setActiveTypingUser(data.userName);
-        } else {
-          setActiveTypingUser(null);
-        }
+        setTypingUsers((prev) => {
+          const copy = { ...prev };
+          if (data.isTyping) {
+            copy[data.userId] = data.userName;
+          } else {
+            delete copy[data.userId];
+          }
+          return copy;
+        });
       }
     };
 
@@ -160,13 +166,45 @@ export const TeamsChannelChat: React.FC<TeamsChannelChatProps> = ({
       socketService.emit('leave_channel', channelKey);
       socketService.off('new_channel_message', handleNewMessage);
       socketService.off('user_typing', handleUserTyping);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, [channelKey, channel.id, currentUserId]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputMessage(val);
+
+    // Emit user is typing
+    socketService.emit('user_typing', {
+      channelId: channelKey,
+      userId: currentUserId,
+      userName: user?.fullName || user?.username || 'Bạn',
+      isTyping: true,
+    });
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socketService.emit('user_typing', {
+        channelId: channelKey,
+        userId: currentUserId,
+        userName: user?.fullName || user?.username || 'Bạn',
+        isTyping: false,
+      });
+    }, 1500);
+  };
 
   // Send Channel Message
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim() && !codeBody.trim()) return;
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    socketService.emit('user_typing', {
+      channelId: channelKey,
+      userId: currentUserId,
+      userName: user?.fullName || user?.username || 'Bạn',
+      isTyping: false,
+    });
 
     // Check announcement permission
     if (isAnnouncementOnly && !isTeacherOrAdmin && !replyingTo) {
@@ -605,9 +643,10 @@ export const TeamsChannelChat: React.FC<TeamsChannelChatProps> = ({
             )}
 
             {/* Typing indicator */}
-            {activeTypingUser && (
-              <div className="text-[11px] text-violet-600 italic animate-pulse">
-                {activeTypingUser} đang soạn tin nhắn trong kênh...
+            {Object.keys(typingUsers).length > 0 && (
+              <div className="flex items-center gap-1.5 pb-2 text-[11px] italic text-violet-600 animate-pulse">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-violet-500"></span>
+                <span>{Object.values(typingUsers).join(', ')} đang soạn tin nhắn trong kênh...</span>
               </div>
             )}
           </div>
@@ -670,7 +709,6 @@ export const TeamsChannelChat: React.FC<TeamsChannelChatProps> = ({
                   />
                 </div>
               )}
-
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -691,8 +729,8 @@ export const TeamsChannelChat: React.FC<TeamsChannelChatProps> = ({
                       : `Đăng bài viết mới trong kênh #${channel.name}...`
                   }
                   value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  className="flex-1 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-2.5 text-xs outline-none focus:border-violet-500 focus:bg-white"
+                  onChange={handleInputChange}
+                  className="flex-1 rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-2.5 text-xs text-gray-800 outline-none transition focus:border-violet-500 focus:bg-white"
                 />
 
                 <button

@@ -143,8 +143,26 @@ export const academicService = {
     const response = await api.post<{ message: string }>(`/v1/academic/classes/${classId}/assign-homeroom`, { homeroomClassId });
     return response.data;
   },
-  autoAssignClasses: async (data: { courseId: string; academicYear: string; semester: number; studentIds: string[]; numberOfClasses: number }) => {
+  autoAssignClasses: async (data: { courseId: string; academicYear: string; semester: number; studentIds: string[]; numberOfClasses: number; teacherId?: string }) => {
     const response = await api.post<{ message: string; data: any }>('/v1/academic/classes/auto-assign', data);
+    return response.data;
+  },
+  updateClassTeacher: async (classId: string, teacherId: string) => {
+    try {
+      const response = await api.put<{ message: string; data: Class }>(`/v1/academic/classes/${classId}/teacher`, { teacherId });
+      return response.data;
+    } catch {
+      try {
+        const response = await api.put<{ message: string; data: Class }>(`/v1/academic/classes/${classId}`, { teacherId });
+        return response.data;
+      } catch {
+        const response = await api.patch<{ message: string; data: Class }>(`/v1/academic/classes/${classId}`, { teacherId });
+        return response.data;
+      }
+    }
+  },
+  autoAssignTeachersToAllClasses: async () => {
+    const response = await api.post<{ message: string; data: any }>('/v1/academic/classes/auto-assign-teachers');
     return response.data;
   },
 
@@ -155,6 +173,24 @@ export const academicService = {
   },
   createHomeroom: async (data: { code: string; name: string; majorId: string; cohort: string; advisorId?: string }) => {
     const response = await api.post<{ message: string; data: HomeroomClass }>('/v1/academic/homerooms', data);
+    return response.data;
+  },
+  updateHomeroomAdvisor: async (homeroomId: string, advisorId: string) => {
+    try {
+      const response = await api.put<{ message: string; data: HomeroomClass }>(`/v1/academic/homerooms/${homeroomId}/advisor`, { advisorId });
+      return response.data;
+    } catch {
+      try {
+        const response = await api.put<{ message: string; data: HomeroomClass }>(`/v1/academic/homerooms/${homeroomId}`, { advisorId });
+        return response.data;
+      } catch {
+        const response = await api.patch<{ message: string; data: HomeroomClass }>(`/v1/academic/homerooms/${homeroomId}`, { advisorId });
+        return response.data;
+      }
+    }
+  },
+  autoAssignAdvisorsToAllHomerooms: async () => {
+    const response = await api.post<{ message: string; data: any }>('/v1/academic/homerooms/auto-assign-advisors');
     return response.data;
   },
   autoAssignHomerooms: async (data: { majorId: string; cohort: string; studentIds: string[]; numberOfClasses: number; prefix: string; suffix?: string }) => {

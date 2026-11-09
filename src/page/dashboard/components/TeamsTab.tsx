@@ -152,6 +152,7 @@ export default function TeamsTab({ user }: { user: any }) {
   // Update own presence
   const handlePresenceChange = async (newStatus: PresenceStatus) => {
     setPresence(newStatus);
+    socketService.emit('update_presence', { status: newStatus });
     try {
       await teamsService.updatePresence(newStatus);
     } catch {

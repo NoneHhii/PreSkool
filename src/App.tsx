@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import './App.css';
 import { ThemeProvider } from './contexts/ThemeContext';
 import LoginPage from './page/auth/login.tsx';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './page/dashboard/Dashboard.tsx';
 import Profile from './page/profile/Profile.tsx';
+import { connectSocket } from './services/socket';
 
 // Helper to verify user authentication status safely
 const isAuthenticated = (): boolean => {
@@ -36,6 +37,13 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 function App() {
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      connectSocket(token);
+    }
+  }, []);
+
   return (
     <ThemeProvider>
       <BrowserRouter>
