@@ -23,9 +23,10 @@ export const getSocketUrl = (): string => {
 
   if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
 
-  if (import.meta.env.VITE_API_URL) {
+  const apiBase = api.defaults.baseURL || import.meta.env.VITE_API_URL || '';
+  if (apiBase.startsWith('http')) {
     try {
-      const url = new URL(import.meta.env.VITE_API_URL);
+      const url = new URL(apiBase);
       return `${url.protocol}//${url.host}`;
     } catch {
       // ignore
@@ -49,6 +50,8 @@ class SocketService {
   private currentUserId: string = '';
   private broadcastChannel: BroadcastChannel | null = null;
   private processedEventIds = new Set<string>();
+
+  public mode: 'SOCKET_IO' | 'BROADCAST_MESH' | 'DISCONNECTED' = 'DISCONNECTED';
 
   // Unique client ID for this browser tab session
   public readonly clientId: string = `peer_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36).slice(-4)}`;
@@ -116,6 +119,7 @@ class SocketService {
 
       s.on('disconnect', (reason) => {
         this.isConnected = false;
+        this.mode = 'DISCONNECTED';
         this.triggerLocal('disconnect', { reason });
       });
     }
@@ -124,6 +128,7 @@ class SocketService {
   public disconnect() {
     disconnectSocket();
     this.isConnected = false;
+    this.mode = 'DISCONNECTED';
     this.triggerLocal('disconnect', {});
   }
 
