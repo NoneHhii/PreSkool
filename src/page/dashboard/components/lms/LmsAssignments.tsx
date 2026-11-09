@@ -41,44 +41,44 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
     initialAssignments.length > 0
       ? initialAssignments
       : [
-          {
-            id: 'ass-1',
-            classId,
-            title: 'Bài tập lớn: Xây dựng RESTful API Backend với NestJS',
-            description:
-              'Sinh viên thiết kế API theo kiến trúc phân tầng Clean Architecture, có xác thực JWT, kết nối PostgreSQL qua Prisma ORM và viết tài liệu Swagger.',
-            openDate: '2026-11-01T00:00:00Z',
-            deadline: '2026-11-15T23:59:59Z',
-            cutOffDate: '2026-11-18T23:59:59Z',
-            allowLate: true,
-            isGroup: true,
-            maxScore: 10,
-            rubric: [
-              { criteria: 'Thiết kế CSDL chuẩn hóa (3NF & Indexing)', maxPoints: 3 },
-              { criteria: 'Xử lý logic nghiệp vụ, bảo mật JWT & Phân quyền', maxPoints: 5 },
-              { criteria: 'Tài liệu Swagger OpenAPI & Unit Tests', maxPoints: 2 },
-            ],
-            isSubmitted: true,
-          },
-          {
-            id: 'ass-2',
-            classId,
-            title: 'Bài tập cá nhân Tuần 2: Query Optimization & Caching Redis',
-            description:
-              'Tối ưu hóa câu truy vấn SQL phức tạp, cấu hình Redis Cache cho các endpoint đọc nhiều và đo lường sự cải thiện bằng Apache Benchmark.',
-            openDate: '2026-10-25T00:00:00Z',
-            deadline: '2026-11-05T23:59:59Z',
-            cutOffDate: '2026-11-07T23:59:59Z',
-            allowLate: false,
-            isGroup: false,
-            maxScore: 10,
-            rubric: [
-              { criteria: 'Giải pháp Cache Invalidation hợp lý', maxPoints: 4 },
-              { criteria: 'Báo cáo benchmark so sánh trước và sau khi tối ưu', maxPoints: 6 },
-            ],
-            isSubmitted: false,
-          },
-        ]
+        {
+          id: 'ass-1',
+          classId,
+          title: 'Bài tập lớn: Xây dựng RESTful API Backend với NestJS',
+          description:
+            'Sinh viên thiết kế API theo kiến trúc phân tầng Clean Architecture, có xác thực JWT, kết nối PostgreSQL qua Prisma ORM và viết tài liệu Swagger.',
+          openDate: '2026-11-01T00:00:00Z',
+          deadline: '2026-11-15T23:59:59Z',
+          cutOffDate: '2026-11-18T23:59:59Z',
+          allowLate: true,
+          isGroup: true,
+          maxScore: 10,
+          rubric: [
+            { criteria: 'Thiết kế CSDL chuẩn hóa (3NF & Indexing)', maxPoints: 3 },
+            { criteria: 'Xử lý logic nghiệp vụ, bảo mật JWT & Phân quyền', maxPoints: 5 },
+            { criteria: 'Tài liệu Swagger OpenAPI & Unit Tests', maxPoints: 2 },
+          ],
+          isSubmitted: true,
+        },
+        {
+          id: 'ass-2',
+          classId,
+          title: 'Bài tập cá nhân Tuần 2: Query Optimization & Caching Redis',
+          description:
+            'Tối ưu hóa câu truy vấn SQL phức tạp, cấu hình Redis Cache cho các endpoint đọc nhiều và đo lường sự cải thiện bằng Apache Benchmark.',
+          openDate: '2026-10-25T00:00:00Z',
+          deadline: '2026-11-05T23:59:59Z',
+          cutOffDate: '2026-11-07T23:59:59Z',
+          allowLate: false,
+          isGroup: false,
+          maxScore: 10,
+          rubric: [
+            { criteria: 'Giải pháp Cache Invalidation hợp lý', maxPoints: 4 },
+            { criteria: 'Báo cáo benchmark so sánh trước và sau khi tối ưu', maxPoints: 6 },
+          ],
+          isSubmitted: false,
+        },
+      ]
   );
 
   // Groups state
@@ -272,18 +272,16 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
         <div className="flex rounded-xl bg-gray-100 p-1 self-start">
           <button
             onClick={() => setActiveTab('assignments')}
-            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
-              activeTab === 'assignments' ? 'bg-white text-blue-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'
-            }`}
+            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${activeTab === 'assignments' ? 'bg-white text-blue-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+              }`}
           >
             <FileText className="h-4 w-4" />
             <span>Danh Sách Bài Tập ({assignments.length})</span>
           </button>
           <button
             onClick={() => setActiveTab('groups')}
-            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
-              activeTab === 'groups' ? 'bg-white text-blue-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'
-            }`}
+            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${activeTab === 'groups' ? 'bg-white text-blue-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+              }`}
           >
             <Users className="h-4 w-4" />
             <span>Nhóm Đồ Án ({groups.length} Nhóm)</span>
@@ -326,9 +324,8 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
                 <div className="space-y-2 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${
-                        ass.isGroup ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'
-                      }`}
+                      className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${ass.isGroup ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'
+                        }`}
                     >
                       {ass.isGroup ? 'Đồ Án Nhóm' : 'Cá Nhân'}
                     </span>
@@ -388,9 +385,8 @@ export const LmsAssignments: React.FC<LmsAssignmentsProps> = ({
                   {isStudent && (
                     <button
                       onClick={() => handleOpenSubmit(ass)}
-                      className={`flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white transition shadow-xs cursor-pointer ${
-                        ass.isSubmitted ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
-                      }`}
+                      className={`flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white transition shadow-xs cursor-pointer ${ass.isSubmitted ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
                     >
                       <UploadCloud className="h-4 w-4" />
                       <span>{ass.isSubmitted ? 'Nộp Lại (Resubmit)' : 'Nộp Bài Tập'}</span>

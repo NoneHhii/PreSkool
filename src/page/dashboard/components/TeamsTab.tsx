@@ -5,8 +5,11 @@ import {
   type TeamChannel,
   type MeetingData,
   type PresenceStatus,
+  type DirectoryUser,
 } from '../../../services/teams.service';
-import { academicService, type Class } from '../../../services/academic.service';
+import { academicService, type Class, type HomeroomClass } from '../../../services/academic.service';
+import { studentService } from '../../../services/student.service';
+import { userService } from '../../../services/user.service';
 import { socketService } from '../../../services/socket.service';
 import {
   Users,
@@ -19,211 +22,446 @@ import {
   Plus,
   RefreshCw,
   ChevronDown,
-  X,
+  AlertCircle,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import TeamsChannelChat from './teams/TeamsChannelChat';
 import TeamsDirectChat from './teams/TeamsDirectChat';
 import TeamsMeetingRoom from './teams/TeamsMeetingRoom';
+import TeamsMeetingsHub from './teams/TeamsMeetingsHub';
 import TeamsCalendarAppointments from './teams/TeamsCalendarAppointments';
 import TeamsActivityFeed from './teams/TeamsActivityFeed';
 
-type TeamsRailTab = 'activity' | 'chat' | 'teams' | 'meetings' | 'calendar';
+type TeamsRailTab = 'chat' | 'teams' | 'meetings' | 'activity';
 
 export default function TeamsTab({ user }: { user: any }) {
-  const isAdmin = user?.role === 'ADMIN';
-  const isTeacher = user?.role === 'TEACHER';
+  // Current user normalized with real UUID
+  const [currentUser, setCurrentUser] = useState<any>(user);
 
+  const isAdmin = currentUser?.role === 'ADMIN';
+  const isTeacher = currentUser?.role === 'TEACHER';
+  const isFacultyOrAdmin = isAdmin || isTeacher;
+
+  // Rail & Navigation
   const [activeRail, setActiveRail] = useState<TeamsRailTab>('teams');
+  const [activitySubTab, setActivitySubTab] = useState<'feed' | 'calendar'>('feed');
+
+  // Real Socket.IO connection status
+  const [socketConnected, setSocketConnected] = useState<boolean>(socketService.connected);
   const [presence, setPresence] = useState<PresenceStatus>('ONLINE');
+  const [presenceMap, setPresenceMap] = useState<Record<string, PresenceStatus>>({});
 
-  // Teams & Channels state
-  const [teams, setTeams] = useState<TeamData[]>([
-    {
-      id: 'team-se101',
-      name: 'Lớp SE101.N11 - Lập trình RESTful API & Backend',
-      description: 'Không gian cộng tác học tập chính thức học kỳ 1 (2026-2027)',
-      role: isTeacher ? 'OWNER' : 'MEMBER',
-      channelsCount: 3,
-      membersCount: 45,
-      channels: [
-        {
-          id: 'ch-general',
-          teamId: 'team-se101',
-          name: 'General',
-          displayName: '📢 Kênh Chung (Thông Báo)',
-          description: 'Kênh thông báo chính thức từ Giảng viên',
-          type: 'PUBLIC',
-          isGeneral: true,
-        },
-        {
-          id: 'ch-qa',
-          teamId: 'team-se101',
-          name: 'Q&A',
-          displayName: '💬 Hỏi Đáp & Thảo Luận',
-          description: 'Kênh trao đổi kiến thức tự do giữa sinh viên và giảng viên',
-          type: 'PUBLIC',
-        },
-        {
-          id: 'ch-grp-1',
-          teamId: 'team-se101',
-          name: 'nhom-1-ecommerce',
-          displayName: '🔒 Nhóm 1 - Đề tài E-Commerce',
-          description: 'Kênh thảo luận đồ án kín của Nhóm 1 (Đồng bộ từ LMS)',
-          type: 'PRIVATE',
-          assignmentGroupId: 'grp-1',
-        },
-      ],
-    },
-    {
-      id: 'team-clb',
-      name: 'CLB Lập Trình & Nghiên Cứu Khoa Học PreSkool',
-      description: 'Sinh hoạt chuyên môn, chia sẻ công nghệ và hướng nghiệp',
-      role: 'MEMBER',
-      channelsCount: 2,
-      membersCount: 68,
-      channels: [
-        {
-          id: 'ch-clb-general',
-          teamId: 'team-clb',
-          name: 'Chung',
-          displayName: '📢 Thông Báo CLB',
-          type: 'PUBLIC',
-        },
-        {
-          id: 'ch-clb-nckh',
-          teamId: 'team-clb',
-          name: 'NCKH-2026',
-          displayName: '🔬 Đề Tài NCKH 2026',
-          type: 'PUBLIC',
-        },
-      ],
-    },
-  ]);
+  // Teams & Channels state - starts EMPTY (No fake data!)
+  const [teams, setTeams] = useState<TeamData[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+  const [selectedChannelId, setSelectedChannelId] = useState<string>('');
+  const [loadingTeams, setLoadingTeams] = useState(false);
 
-  const [selectedTeamId, setSelectedTeamId] = useState<string>('team-se101');
-  const [selectedChannelId, setSelectedChannelId] = useState<string>('ch-general');
+  // ERP Classes & Homerooms for sync
+  const [erpClasses, setErpClasses] = useState<Class[]>([]);
+  const [erpHomerooms, setErpHomerooms] = useState<HomeroomClass[]>([]);
 
-  // Active Meeting state
+  // Directory users for real-time contact & membership lookup
+  const [directoryUsers, setDirectoryUsers] = useState<DirectoryUser[]>([]);
+
+  // Active Video Meeting state
   const [activeMeeting, setActiveMeeting] = useState<MeetingData | null>(null);
 
-  // Modals state
+  // Sync Modal
   const [showSyncModal, setShowSyncModal] = useState(false);
-  const [erpClasses, setErpClasses] = useState<Class[]>([]);
+  const [syncType, setSyncType] = useState<'CLASS' | 'HOMEROOM'>('CLASS');
   const [selectedClassToSync, setSelectedClassToSync] = useState('');
+  const [selectedHomeroomToSync, setSelectedHomeroomToSync] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
 
+  // Custom Team Modal
   const [showCustomTeamModal, setShowCustomTeamModal] = useState(false);
   const [customTeamName, setCustomTeamName] = useState('');
   const [customTeamDesc, setCustomTeamDesc] = useState('');
+  const [creatingCustomTeam, setCreatingCustomTeam] = useState(false);
+  const [customTeamError, setCustomTeamError] = useState<string | null>(null);
 
+  // Create Channel Modal
   const [showCreateChannelModal, setShowCreateChannelModal] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [newChannelDisplayName, setNewChannelDisplayName] = useState('');
   const [newChannelType, setNewChannelType] = useState<'PUBLIC' | 'PRIVATE'>('PUBLIC');
   const [newChannelDesc, setNewChannelDesc] = useState('');
 
-  // Load ERP Classes for sync and load teams from API
+  // ============================================================
+  // 1. INITIALIZE CURRENT USER & SOCKET.IO CONNECTION
+  // ============================================================
   useEffect(() => {
-    fetchTeams();
-    fetchErpClasses();
+    // 1. Ensure user has real UUID from /api/users/me
+    userService
+      .getMe()
+      .then((res: any) => {
+        if (res.data) {
+          const u = res.data;
+          setCurrentUser({
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            role: u.role,
+            fullName: u.profile?.fullName || user?.fullName || u.username,
+            avatarUrl: u.profile?.avatarUrl,
+            student: u.student,
+            teacher: u.teacher,
+          });
+        }
+      })
+      .catch(() => {
+        setCurrentUser(user);
+      });
+
+    // 2. Connect Socket.IO
+    socketService.connect();
+
+    const handleConnect = () => setSocketConnected(true);
+    const handleDisconnect = () => setSocketConnected(false);
+    const handleConnectError = () => setSocketConnected(false);
+
+    const handlePresenceChange = (data: { userId: string; status: PresenceStatus }) => {
+      if (data?.userId && data?.status) {
+        setPresenceMap((prev) => ({
+          ...prev,
+          [data.userId]: data.status,
+        }));
+      }
+    };
+
+    socketService.on('connect', handleConnect);
+    socketService.on('disconnect', handleDisconnect);
+    socketService.on('connect_error', handleConnectError);
+    socketService.on('presence_change', handlePresenceChange);
+
+    return () => {
+      socketService.off('connect', handleConnect);
+      socketService.off('disconnect', handleDisconnect);
+      socketService.off('connect_error', handleConnectError);
+      socketService.off('presence_change', handlePresenceChange);
+    };
   }, []);
 
-  const fetchTeams = async () => {
-    try {
-      const res = await teamsService.getMyTeams();
-      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-        setTeams(res.data);
-        setSelectedTeamId(res.data[0].id);
-        if (res.data[0].channels && res.data[0].channels.length > 0) {
-          setSelectedChannelId(res.data[0].channels[0].id);
-        }
-      }
-    } catch {
-      // fallback to initial state
-    }
-  };
-
-  const fetchErpClasses = async () => {
-    try {
-      const res = await academicService.getClasses();
-      const list = res.data || [];
-      setErpClasses(list);
-      if (list.length > 0) {
-        setSelectedClassToSync(list[0].id);
-      }
-    } catch {
-      // fallback
-    }
-  };
-
-  // Listen for presence change events via socket
-  useEffect(() => {
-    const handlePresenceUpdate = (data: { userId: string; status: PresenceStatus }) => {
-      if (data?.userId === user?.id) {
-        setPresence(data.status);
-      }
-    };
-
-    socketService.on('presence_change', handlePresenceUpdate);
-    return () => {
-      socketService.off('presence_change', handlePresenceUpdate);
-    };
-  }, [user]);
-
+  // Update own presence
   const handlePresenceChange = async (newStatus: PresenceStatus) => {
     setPresence(newStatus);
     socketService.emit('update_presence', { status: newStatus });
     try {
       await teamsService.updatePresence(newStatus);
     } catch {
-      // fallback
+      // ignore
     }
   };
+
+  // Reconnect Socket.IO manually
+  const handleManualReconnect = () => {
+    socketService.connect();
+  };
+
+  // ============================================================
+  // 2. LOAD TEAMS, CLASSES, HOMEROOMS & DIRECTORY USERS
+  // ============================================================
+  const loadWorkspaceData = async () => {
+    setLoadingTeams(true);
+
+    let fetchedClasses: Class[] = [];
+    let fetchedHomerooms: HomeroomClass[] = [];
+    const dirMap = new Map<string, DirectoryUser>();
+
+    // 1. Load Classes
+    try {
+      const clsRes = await academicService.getClasses();
+      if (clsRes.data && Array.isArray(clsRes.data)) {
+        fetchedClasses = clsRes.data;
+        setErpClasses(fetchedClasses);
+        if (fetchedClasses.length > 0 && !selectedClassToSync) {
+          setSelectedClassToSync(fetchedClasses[0].id);
+        }
+
+        // Extract teachers & students from classes into directory
+        fetchedClasses.forEach((cls) => {
+          if (cls.teacher?.user) {
+            const tUser = cls.teacher.user;
+            dirMap.set(tUser.id, {
+              id: tUser.id,
+              fullName: tUser.profile?.fullName || 'Giảng viên',
+              email: tUser.email,
+              avatarUrl: tUser.profile?.avatarUrl,
+              role: 'TEACHER',
+              teacherCode: cls.teacher.teacherCode,
+              teacherProfileId: cls.teacher.id || (cls as any).homeroomTeacher?.id,
+              presence: presenceMap[tUser.id] || 'OFFLINE',
+            });
+          }
+
+          if (cls.students && Array.isArray(cls.students)) {
+            cls.students.forEach((stWrapper) => {
+              const sUser = stWrapper.student?.user;
+              if (sUser) {
+                dirMap.set(sUser.id, {
+                  id: sUser.id,
+                  fullName: sUser.profile?.fullName || 'Sinh viên',
+                  email: sUser.email,
+                  avatarUrl: sUser.profile?.avatarUrl,
+                  role: 'STUDENT',
+                  studentCode: stWrapper.student?.studentCode,
+                  studentProfileId: stWrapper.student?.id || (stWrapper as any).studentId,
+                  presence: presenceMap[sUser.id] || 'OFFLINE',
+                });
+              }
+            });
+          }
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Load Homerooms
+    try {
+      const hrRes = await academicService.getHomerooms();
+      if (hrRes.data && Array.isArray(hrRes.data)) {
+        fetchedHomerooms = hrRes.data;
+        setErpHomerooms(fetchedHomerooms);
+        if (fetchedHomerooms.length > 0 && !selectedHomeroomToSync) {
+          setSelectedHomeroomToSync(fetchedHomerooms[0].id);
+        }
+
+        fetchedHomerooms.forEach((hr) => {
+          if (hr.advisor?.user) {
+            const advUser = hr.advisor.user;
+            dirMap.set(advUser.id, {
+              id: advUser.id,
+              fullName: advUser.profile?.fullName || 'Cố vấn học tập',
+              email: advUser.email,
+              avatarUrl: advUser.profile?.avatarUrl,
+              role: 'TEACHER',
+              teacherCode: hr.advisor.teacherCode,
+              teacherProfileId: hr.advisor.id,
+              presence: presenceMap[advUser.id] || 'OFFLINE',
+            });
+          }
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    // 3. Load Students list
+    try {
+      const stRes = await studentService.getStudents({ limit: 200 });
+      if (stRes.data?.data && Array.isArray(stRes.data.data)) {
+        stRes.data.data.forEach((st: any) => {
+          const uid = st.userId || st.user?.id || st.id;
+          if (uid) {
+            const existing = dirMap.get(uid);
+            dirMap.set(uid, {
+              id: uid,
+              fullName: st.user?.profile?.fullName || st.fullName || 'Sinh viên',
+              email: st.user?.email || st.email,
+              avatarUrl: st.user?.profile?.avatarUrl,
+              role: 'STUDENT',
+              studentCode: st.studentCode,
+              studentProfileId: st.id || existing?.studentProfileId,
+              presence: presenceMap[uid] || 'OFFLINE',
+            });
+          }
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    // 4. Load Teachers list
+    try {
+      const tchRes = await academicService.getTeachers();
+      if (tchRes.data && Array.isArray(tchRes.data)) {
+        tchRes.data.forEach((t: any) => {
+          const uid = t.userId || t.user?.id || t.id;
+          if (uid) {
+            const existing = dirMap.get(uid);
+            dirMap.set(uid, {
+              id: uid,
+              fullName: t.user?.profile?.fullName || t.name || 'Giảng viên',
+              email: t.user?.email || t.email,
+              avatarUrl: t.user?.profile?.avatarUrl,
+              role: 'TEACHER',
+              teacherCode: t.teacherCode,
+              teacherProfileId: t.id || existing?.teacherProfileId,
+              presence: presenceMap[uid] || 'OFFLINE',
+            });
+          }
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    setDirectoryUsers(Array.from(dirMap.values()));
+
+    // 5. Load Teams from Backend
+    try {
+      const teamRes = await teamsService.getMyTeams();
+      if (teamRes.data?.data && Array.isArray(teamRes.data.data)) {
+        const rawTeams = teamRes.data.data;
+
+        // Enrich each team with channels and members
+        const mappedTeams: TeamData[] = await Promise.all(
+          rawTeams.map(async (t: any) => {
+            const matchedClass = fetchedClasses.find((c) => c.id === t.classId);
+            const matchedHomeroom = fetchedHomerooms.find((h) => h.id === t.homeroomClassId);
+
+            // Build standard channels
+            const channels: TeamChannel[] = [
+              {
+                id: `${t.id}_general`,
+                teamId: t.id,
+                name: 'general',
+                displayName: '📢 Kênh Chung (Thông Báo)',
+                description: 'Kênh thông báo chính thức của giảng viên',
+                type: 'PUBLIC',
+                isGeneral: true,
+              },
+              {
+                id: `${t.id}_qa`,
+                teamId: t.id,
+                name: 'q-and-a',
+                displayName: '💬 Hỏi Đáp & Thảo Luận',
+                description: 'Kênh trao đổi tự do giữa sinh viên và giảng viên',
+                type: 'PUBLIC',
+              },
+            ];
+
+            // Fetch LMS assignment groups for this class if classId exists
+            if (t.classId) {
+              try {
+                const grpRes = await teamsService.getAssignmentGroups(t.classId);
+                if (grpRes.data?.data && Array.isArray(grpRes.data.data)) {
+                  grpRes.data.data.forEach((grp: any) => {
+                    channels.push({
+                      id: `${t.id}_grp_${grp.id}`,
+                      teamId: t.id,
+                      name: `nhom-${grp.groupNumber || grp.name}`,
+                      displayName: `🔒 Nhóm ${grp.groupNumber || ''}: ${grp.name}`,
+                      description: 'Kênh làm việc nhóm đồ án LMS',
+                      type: 'PRIVATE',
+                      assignmentGroupId: grp.id,
+                    });
+                  });
+                }
+              } catch {
+                // ignore
+              }
+            }
+
+            // Extract members
+            const members: any[] = [];
+            if (matchedClass) {
+              if (matchedClass.teacher?.user) {
+                members.push({
+                  id: matchedClass.teacher.user.id,
+                  userId: matchedClass.teacher.user.id,
+                  role: 'OWNER',
+                  fullName: matchedClass.teacher.user.profile?.fullName || 'Giảng viên',
+                  avatarUrl: matchedClass.teacher.user.profile?.avatarUrl,
+                  email: matchedClass.teacher.user.email,
+                  teacherCode: matchedClass.teacher.teacherCode,
+                });
+              }
+              if (matchedClass.students) {
+                matchedClass.students.forEach((st) => {
+                  if (st.student?.user) {
+                    members.push({
+                      id: st.student.user.id,
+                      userId: st.student.user.id,
+                      role: 'MEMBER',
+                      fullName: st.student.user.profile?.fullName || 'Sinh viên',
+                      avatarUrl: st.student.user.profile?.avatarUrl,
+                      email: st.student.user.email,
+                      studentCode: st.student.studentCode,
+                    });
+                  }
+                });
+              }
+            } else if (matchedHomeroom && matchedHomeroom.advisor?.user) {
+              members.push({
+                id: matchedHomeroom.advisor.user.id,
+                userId: matchedHomeroom.advisor.user.id,
+                role: 'OWNER',
+                fullName: matchedHomeroom.advisor.user.profile?.fullName || 'Cố vấn học tập',
+                avatarUrl: matchedHomeroom.advisor.user.profile?.avatarUrl,
+                email: matchedHomeroom.advisor.user.email,
+                teacherCode: matchedHomeroom.advisor.teacherCode,
+              });
+            }
+
+            return {
+              id: t.id,
+              name: t.name || (matchedClass ? `Lớp ${matchedClass.code}` : 'Nhóm Học Phần'),
+              description: t.description || 'Không gian làm việc PreSkool Teams',
+              classId: t.classId,
+              homeroomClassId: t.homeroomClassId,
+              role: t.ownerId === currentUser?.id || isFacultyOrAdmin ? 'OWNER' : 'MEMBER',
+              channelsCount: channels.length,
+              membersCount: members.length > 0 ? members.length : t._count?.members || 1,
+              channels,
+              members,
+            };
+          })
+        );
+
+        setTeams(mappedTeams);
+
+        if (mappedTeams.length > 0 && !selectedTeamId) {
+          setSelectedTeamId(mappedTeams[0].id);
+          if (mappedTeams[0].channels && mappedTeams[0].channels.length > 0) {
+            setSelectedChannelId(mappedTeams[0].channels[0].id);
+          }
+        }
+      }
+    } catch {
+      // Teams may be empty
+    }
+
+    setLoadingTeams(false);
+  };
+
+  useEffect(() => {
+    loadWorkspaceData();
+  }, [currentUser?.id]);
 
   // Sync Team from ERP
   const handleSyncFromErp = async (e: React.FormEvent) => {
     e.preventDefault();
     setSyncing(true);
+    setSyncError(null);
+    setSyncSuccessMsg(null);
+
+    const payload =
+      syncType === 'CLASS'
+        ? { classId: selectedClassToSync }
+        : { homeroomClassId: selectedHomeroomToSync };
 
     try {
-      await teamsService.syncTeamFromErp({ classId: selectedClassToSync });
-    } catch {
-      // fallback
+      const res = await teamsService.syncTeamFromErp(payload);
+      setSyncSuccessMsg(res.data?.message || 'Đồng bộ Team từ ERP thành công!');
+      await loadWorkspaceData();
+      setTimeout(() => {
+        setShowSyncModal(false);
+        setSyncSuccessMsg(null);
+      }, 1500);
+    } catch (err: any) {
+      const errorMsg =
+        err.response?.data?.message ||
+        err.message ||
+        'Không thể đồng bộ Team từ lớp này do chưa có tài khoản Giảng viên liên kết.';
+      setSyncError(errorMsg);
     }
-
-    const selectedCls = erpClasses.find((c) => c.id === selectedClassToSync);
-    const newTeam: TeamData = {
-      id: `team-${Date.now()}`,
-      name: `Lớp ${selectedCls?.code || 'SE102'} - ${selectedCls?.course?.name || 'Môn Học'}`,
-      description: 'Nhóm đồng bộ tự động từ Lớp học phần ERP',
-      role: 'OWNER',
-      membersCount: 45,
-      channelsCount: 2,
-      channels: [
-        {
-          id: `ch-gen-${Date.now()}`,
-          teamId: `team-${Date.now()}`,
-          name: 'General',
-          displayName: '📢 Kênh Chung (Thông Báo)',
-          type: 'PUBLIC',
-          isGeneral: true,
-        },
-        {
-          id: `ch-qa-${Date.now()}`,
-          teamId: `team-${Date.now()}`,
-          name: 'Q&A',
-          displayName: '💬 Hỏi Đáp & Thảo Luận',
-          type: 'PUBLIC',
-        },
-      ],
-    };
-
-    setTeams((prev) => [newTeam, ...prev]);
-    setSelectedTeamId(newTeam.id);
-    setSelectedChannelId(newTeam.channels![0].id);
     setSyncing(false);
-    setShowSyncModal(false);
-    alert('Đồng bộ Team từ ERP thành công! Đã tự động phân quyền Giảng viên làm OWNER và sinh viên làm MEMBER.');
   };
 
   // Create Custom Team
@@ -231,70 +469,62 @@ export default function TeamsTab({ user }: { user: any }) {
     e.preventDefault();
     if (!customTeamName.trim()) return;
 
-    const newTeam: TeamData = {
-      id: `team-${Date.now()}`,
-      name: customTeamName,
-      description: customTeamDesc,
-      role: 'OWNER',
-      membersCount: 1,
-      channelsCount: 1,
-      channels: [
-        {
-          id: `ch-${Date.now()}`,
-          teamId: `team-${Date.now()}`,
-          name: 'General',
-          displayName: '📢 Kênh Chung',
-          type: 'PUBLIC',
-        },
-      ],
-    };
+    setCreatingCustomTeam(true);
+    setCustomTeamError(null);
 
     try {
-      await teamsService.createCustomTeam({ name: customTeamName, description: customTeamDesc });
-    } catch {
-      // fallback
+      await teamsService.createCustomTeam({
+        name: customTeamName.trim(),
+        description: customTeamDesc.trim(),
+      });
+      await loadWorkspaceData();
+      setCustomTeamName('');
+      setCustomTeamDesc('');
+      setShowCustomTeamModal(false);
+    } catch (err: any) {
+      setCustomTeamError(err.response?.data?.message || err.message || 'Lỗi khi tạo nhóm mới');
     }
-
-    setTeams((prev) => [...prev, newTeam]);
-    setSelectedTeamId(newTeam.id);
-    setSelectedChannelId(newTeam.channels![0].id);
-    setCustomTeamName('');
-    setCustomTeamDesc('');
-    setShowCustomTeamModal(false);
+    setCreatingCustomTeam(false);
   };
 
-  // Create Channel
+  // Create Channel inside Team
   const handleCreateChannel = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newChannelDisplayName.trim()) return;
+    if (!newChannelDisplayName.trim() || !selectedTeamId) return;
 
     const cleanName = newChannelName.trim()
       ? newChannelName.toLowerCase().replace(/\s+/g, '-')
       : newChannelDisplayName.toLowerCase().replace(/[^a-z0-9]/g, '-');
 
+    const newChanId = `${selectedTeamId}_${cleanName}_${Date.now()}`;
     const newChan: TeamChannel = {
-      id: `ch-${Date.now()}`,
+      id: newChanId,
       teamId: selectedTeamId,
       name: cleanName,
-      displayName: newChannelDisplayName,
-      description: newChannelDesc,
+      displayName: newChannelDisplayName.trim(),
+      description: newChannelDesc.trim(),
       type: newChannelType,
     };
 
     try {
       await teamsService.createChannel(selectedTeamId, {
         name: cleanName,
-        displayName: newChannelDisplayName,
-        description: newChannelDesc,
+        displayName: newChannelDisplayName.trim(),
+        description: newChannelDesc.trim(),
         type: newChannelType,
       });
     } catch {
-      // fallback
+      // Local fallback if API fails
     }
 
     setTeams((prev) =>
-      prev.map((t) => (t.id === selectedTeamId ? { ...t, channels: [...(t.channels || []), newChan] } : t))
+      prev.map((t) =>
+        t.id === selectedTeamId
+          ? { ...t, channels: [...(t.channels || []), newChan] }
+          : t
+      )
     );
+
     setSelectedChannelId(newChan.id);
     setNewChannelName('');
     setNewChannelDisplayName('');
@@ -302,15 +532,17 @@ export default function TeamsTab({ user }: { user: any }) {
     setShowCreateChannelModal(false);
   };
 
-  const handleStartInstantMeeting = (title?: string) => {
+  // Quick Start Instant Meeting
+  const handleStartInstantMeeting = (title?: string, customRoomCode?: string) => {
+    const roomCode = customRoomCode || `meet-${Math.random().toString(36).substring(2, 9)}`;
     setActiveMeeting({
-      id: `meet-${Date.now()}`,
-      title: title || 'Họp Trực Tuyến: ' + activeChannel?.displayName,
+      id: `adhoc-${Date.now()}`,
+      title: title || (activeChannel ? `Họp: ${activeChannel.displayName}` : 'Họp Trực Tuyến Nhanh'),
       startTime: new Date().toISOString(),
-      endTime: new Date(Date.now() + 3600000).toISOString(),
-      roomCode: 'ROOM-' + Math.floor(1000 + Math.random() * 9000),
+      endTime: new Date(Date.now() + 7200000).toISOString(),
+      roomCode,
       isLive: true,
-      hostName: user?.fullName || 'TS. Nguyễn Văn Hùng',
+      hostName: currentUser?.fullName || 'Chủ tọa',
     });
   };
 
@@ -334,18 +566,19 @@ export default function TeamsTab({ user }: { user: any }) {
   };
 
   return (
-    <div className="h-[calc(100vh-8.5rem)] flex flex-col rounded-3xl border border-gray-200/90 bg-white shadow-xl overflow-hidden text-gray-800">
-      {/* FULLSCREEN MEETING ROOM OVERLAY */}
+    <div className="h-[calc(100vh-8.5rem)] flex flex-col rounded-3xl border border-gray-200/90 bg-white shadow-xl overflow-hidden text-gray-800 select-none">
+      {/* FULLSCREEN REAL WEBRTC MEETING ROOM OVERLAY */}
       {activeMeeting && (
         <TeamsMeetingRoom
           meeting={activeMeeting}
-          user={user}
+          user={currentUser}
+          directoryUsers={directoryUsers}
           onLeave={() => setActiveMeeting(null)}
         />
       )}
 
       {/* TOP TEAMS HEADER */}
-      <header className="h-14 shrink-0 border-b border-gray-200 bg-[#464775] px-4 text-white flex items-center justify-between shadow-xs select-none">
+      <header className="h-14 shrink-0 border-b border-gray-200 bg-[#464775] px-4 text-white flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-[#464775] font-black text-sm shadow-2xs">
             T
@@ -358,7 +591,24 @@ export default function TeamsTab({ user }: { user: any }) {
 
         {/* Header Right Actions */}
         <div className="flex items-center gap-3">
-          {/* Presence Dropdown */}
+          {/* Socket.IO Real-time Connection Indicator */}
+          {socketConnected ? (
+            <div className="flex items-center gap-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 px-3 py-1 text-xs font-semibold border border-emerald-500/30">
+              <Wifi className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Đã kết nối Realtime</span>
+            </div>
+          ) : (
+            <button
+              onClick={handleManualReconnect}
+              className="flex items-center gap-1.5 rounded-xl bg-rose-500/20 text-rose-300 px-3 py-1 text-xs font-semibold border border-rose-500/40 hover:bg-rose-500/30 transition cursor-pointer"
+              title="Bấm để kết nối lại Socket.IO"
+            >
+              <WifiOff className="h-3.5 w-3.5 text-rose-400" />
+              <span>Mất kết nối (Thử lại)</span>
+            </button>
+          )}
+
+          {/* User Presence Dropdown */}
           <div className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold backdrop-blur-md">
             <span className={`h-2.5 w-2.5 rounded-full ${getPresenceBadge(presence).color}`} />
             <select
@@ -375,9 +625,13 @@ export default function TeamsTab({ user }: { user: any }) {
           </div>
 
           {/* Sync from ERP (Teacher/Admin only) */}
-          {(isAdmin || isTeacher) && (
+          {isFacultyOrAdmin && (
             <button
-              onClick={() => setShowSyncModal(true)}
+              onClick={() => {
+                setSyncError(null);
+                setSyncSuccessMsg(null);
+                setShowSyncModal(true);
+              }}
               className="flex items-center gap-1.5 rounded-xl bg-white/15 px-3 py-1.5 text-xs font-semibold hover:bg-white/25 transition cursor-pointer backdrop-blur-md"
               title="Đồng bộ Team từ Lớp Học Phần ERP"
             >
@@ -400,17 +654,16 @@ export default function TeamsTab({ user }: { user: any }) {
       {/* BODY WITH LEFT TEAMS APP RAIL */}
       <div className="flex-1 flex overflow-hidden">
         {/* 1. TEAMS APP RAIL (FAR LEFT) */}
-        <nav className="w-16 shrink-0 border-r border-gray-200 bg-[#ebebeb] flex flex-col items-center py-4 space-y-4 select-none">
+        <nav className="w-16 shrink-0 border-r border-gray-200 bg-[#ebebeb] flex flex-col items-center py-4 space-y-4">
           <button
             onClick={() => setActiveRail('activity')}
             className={`flex flex-col items-center justify-center h-12 w-12 rounded-2xl transition cursor-pointer relative ${
               activeRail === 'activity' ? 'bg-white text-[#464775] shadow-xs font-bold' : 'text-gray-600 hover:bg-gray-200'
             }`}
-            title="Hoạt động"
+            title="Hoạt động & Lịch học"
           >
             <Bell className="h-5 w-5" />
             <span className="text-[9px] mt-0.5">Hoạt động</span>
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-rose-500" />
           </button>
 
           <button
@@ -418,7 +671,7 @@ export default function TeamsTab({ user }: { user: any }) {
             className={`flex flex-col items-center justify-center h-12 w-12 rounded-2xl transition cursor-pointer ${
               activeRail === 'chat' ? 'bg-white text-[#464775] shadow-xs font-bold' : 'text-gray-600 hover:bg-gray-200'
             }`}
-            title="Trò chuyện 1-1"
+            title="Trò chuyện 1-1 & Nhóm"
           >
             <MessageSquare className="h-5 w-5" />
             <span className="text-[9px] mt-0.5">Chat</span>
@@ -436,172 +689,319 @@ export default function TeamsTab({ user }: { user: any }) {
           </button>
 
           <button
-            onClick={() => setActiveRail('calendar')}
+            onClick={() => setActiveRail('meetings')}
             className={`flex flex-col items-center justify-center h-12 w-12 rounded-2xl transition cursor-pointer ${
-              activeRail === 'calendar' ? 'bg-white text-[#464775] shadow-xs font-bold' : 'text-gray-600 hover:bg-gray-200'
+              activeRail === 'meetings' ? 'bg-white text-[#464775] shadow-xs font-bold' : 'text-gray-600 hover:bg-gray-200'
             }`}
-            title="Lịch & Tư vấn"
+            title="Quản lý cuộc họp & WebRTC"
           >
-            <Calendar className="h-5 w-5" />
-            <span className="text-[9px] mt-0.5">Lịch</span>
+            <Video className="h-5 w-5" />
+            <span className="text-[9px] mt-0.5">Cuộc Họp</span>
           </button>
         </nav>
 
         {/* 2. TEAMS SUB-BAR (WHEN 'teams' RAIL IS ACTIVE) */}
         {activeRail === 'teams' && (
-          <aside className="w-64 shrink-0 border-r border-gray-200 bg-[#f5f5f7] flex flex-col select-none">
-            {/* Header with New Team button */}
+          <aside className="w-64 shrink-0 border-r border-gray-200 bg-[#f5f5f7] flex flex-col">
             <div className="p-4 border-b border-gray-200 flex items-center justify-between">
               <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">Danh Sách Nhóm</h3>
-              <button
-                onClick={() => setShowCustomTeamModal(true)}
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 transition cursor-pointer"
-                title="Tạo Nhóm Mới"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
+              {isFacultyOrAdmin && (
+                <button
+                  onClick={() => setShowCustomTeamModal(true)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 transition cursor-pointer"
+                  title="Tạo Nhóm Mới"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              )}
             </div>
 
             {/* Teams & Channels Accordion */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-4">
-              {teams.map((t) => {
-                const isTeamActive = t.id === selectedTeamId;
-                return (
-                  <div key={t.id} className="space-y-1">
-                    {/* Team Item Header */}
-                    <div
-                      onClick={() => setSelectedTeamId(t.id)}
-                      className={`flex items-center justify-between p-2 rounded-xl cursor-pointer transition ${
-                        isTeamActive ? 'bg-white shadow-2xs font-bold text-gray-900' : 'hover:bg-gray-200/60 text-gray-700'
-                      }`}
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              {loadingTeams ? (
+                <div className="p-4 text-center text-xs text-gray-400">
+                  <RefreshCw className="h-4 w-4 animate-spin mx-auto mb-1 text-violet-600" />
+                  Đang tải danh sách nhóm...
+                </div>
+              ) : teams.length === 0 ? (
+                <div className="p-4 text-center text-xs text-gray-500 space-y-2">
+                  <p className="font-semibold text-gray-700">Chưa có nhóm nào</p>
+                  <p className="text-[11px] text-gray-400">
+                    {isFacultyOrAdmin
+                      ? 'Giảng viên có thể bấm "Đồng Bộ ERP" để tự động tạo nhóm từ lớp học phần.'
+                      : 'Bạn chưa được thêm vào nhóm học phần nào.'}
+                  </p>
+                  {isFacultyOrAdmin && (
+                    <button
+                      onClick={() => setShowSyncModal(true)}
+                      className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-700 transition cursor-pointer"
                     >
-                      <div className="flex items-center gap-2 truncate">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-800 text-xs font-bold">
-                          {t.name.charAt(0)}
+                      Đồng Bộ ERP Ngay
+                    </button>
+                  )}
+                </div>
+              ) : (
+                teams.map((t) => {
+                  const isTeamActive = t.id === selectedTeamId;
+                  return (
+                    <div key={t.id} className="space-y-1">
+                      <div
+                        onClick={() => {
+                          setSelectedTeamId(t.id);
+                          if (t.channels && t.channels.length > 0) {
+                            setSelectedChannelId(t.channels[0].id);
+                          }
+                        }}
+                        className={`flex items-center justify-between p-2 rounded-xl cursor-pointer transition ${
+                          isTeamActive ? 'bg-white shadow-2xs font-bold text-gray-900' : 'hover:bg-gray-200/60 text-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-800 text-xs font-bold">
+                            {t.name.charAt(0)}
+                          </div>
+                          <span className="text-xs truncate">{t.name}</span>
                         </div>
-                        <span className="text-xs truncate">{t.name}</span>
+                        <ChevronDown className="h-3.5 w-3.5 text-gray-400 shrink-0" />
                       </div>
-                      <ChevronDown className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-                    </div>
 
-                    {/* Channels List under this Team */}
-                    {isTeamActive && (
-                      <div className="pl-6 space-y-0.5 pt-1">
-                        {t.channels?.map((chan) => {
-                          const isChanActive = chan.id === selectedChannelId;
-                          return (
-                            <div
-                              key={chan.id}
-                              onClick={() => setSelectedChannelId(chan.id)}
-                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition ${
-                                isChanActive
-                                  ? 'bg-violet-600 text-white font-bold shadow-2xs'
-                                  : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 truncate">
-                                {chan.type === 'PRIVATE' ? (
-                                  <Lock className="h-3.5 w-3.5 shrink-0" />
-                                ) : (
-                                  <Hash className="h-3.5 w-3.5 shrink-0" />
-                                )}
-                                <span className="truncate">{chan.name}</span>
+                      {/* Channels list under active team */}
+                      {isTeamActive && (
+                        <div className="pl-6 space-y-0.5 pt-1">
+                          {t.channels?.map((chan) => {
+                            const isChanActive = chan.id === selectedChannelId;
+                            return (
+                              <div
+                                key={chan.id}
+                                onClick={() => setSelectedChannelId(chan.id)}
+                                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition ${
+                                  isChanActive
+                                    ? 'bg-violet-600 text-white font-bold shadow-2xs'
+                                    : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  {chan.type === 'PRIVATE' ? (
+                                    <Lock className="h-3.5 w-3.5 shrink-0" />
+                                  ) : (
+                                    <Hash className="h-3.5 w-3.5 shrink-0" />
+                                  )}
+                                  <span className="truncate">{chan.displayName || chan.name}</span>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
 
-                        {/* Add Channel Button */}
-                        <button
-                          onClick={() => setShowCreateChannelModal(true)}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:underline cursor-pointer"
-                        >
-                          <Plus className="h-3 w-3" />
-                          <span>Tạo Kênh Mới</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                          {/* Add Channel Button (Owner/Teacher only) */}
+                          {isFacultyOrAdmin && (
+                            <button
+                              onClick={() => setShowCreateChannelModal(true)}
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:underline cursor-pointer"
+                            >
+                              <Plus className="h-3 w-3" />
+                              <span>Tạo Kênh Mới</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </aside>
         )}
 
         {/* 3. MAIN WORKSPACE CONTENT */}
         <main className="flex-1 overflow-hidden bg-white flex flex-col">
+          {/* TAB: TEAMS (CHANNELS) */}
           {activeRail === 'teams' && activeChannel && activeTeam && (
             <TeamsChannelChat
               team={activeTeam}
               channel={activeChannel}
-              user={user}
-              onStartMeeting={() => handleStartInstantMeeting()}
+              user={currentUser}
+              onStartMeeting={(roomCode, title) =>
+                handleStartInstantMeeting(
+                  title || `Họp Kênh: #${activeChannel?.name || 'general'}`,
+                  roomCode
+                )
+              }
             />
           )}
 
+          {/* TAB: CHAT (DIRECT & GROUP) */}
           {activeRail === 'chat' && (
             <TeamsDirectChat
-              user={user}
-              onStartVideoCall={(name) => handleStartInstantMeeting(`Cuộc gọi Video với ${name}`)}
+              user={currentUser}
+              directoryUsers={directoryUsers}
+              presenceMap={presenceMap}
+              onStartVideoCall={(roomCode, meetingTitle) =>
+                setActiveMeeting({
+                  id: `call-${Date.now()}`,
+                  title: meetingTitle || 'Cuộc gọi trực tuyến',
+                  startTime: new Date().toISOString(),
+                  endTime: new Date(Date.now() + 3600000).toISOString(),
+                  roomCode,
+                  isLive: true,
+                  hostName: currentUser?.fullName || 'Người gọi',
+                })
+              }
             />
           )}
 
-          {activeRail === 'calendar' && (
-            <div className="flex-1 overflow-y-auto p-6">
-              <TeamsCalendarAppointments
-                user={user}
-                onJoinMeeting={(title) => handleStartInstantMeeting(title)}
-              />
-            </div>
+          {/* TAB: MEETINGS (LMS VIRTUAL CLASSROOMS & WEBRTC HUB) */}
+          {activeRail === 'meetings' && (
+            <TeamsMeetingsHub
+              user={currentUser}
+              classes={erpClasses}
+              directoryUsers={directoryUsers}
+              presenceMap={presenceMap}
+              onJoinMeeting={(meetingData) => setActiveMeeting(meetingData)}
+            />
           )}
 
+          {/* TAB: ACTIVITY & UNIFIED CALENDAR */}
           {activeRail === 'activity' && (
-            <div className="flex-1 overflow-y-auto p-6">
-              <TeamsActivityFeed
-                onNavigateToMeeting={(title) => handleStartInstantMeeting(title)}
-                onNavigateToChannel={() => setActiveRail('teams')}
-              />
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="h-12 border-b border-gray-200 bg-gray-50 px-6 flex items-center gap-4 text-xs font-bold text-gray-600">
+                <button
+                  onClick={() => setActivitySubTab('feed')}
+                  className={`flex items-center gap-2 h-full border-b-2 transition cursor-pointer ${
+                    activitySubTab === 'feed'
+                      ? 'border-violet-600 text-violet-700 font-extrabold'
+                      : 'border-transparent hover:text-gray-900'
+                  }`}
+                >
+                  <Bell className="h-4 w-4" />
+                  <span>Bảng Tin Hoạt Động</span>
+                </button>
+                <button
+                  onClick={() => setActivitySubTab('calendar')}
+                  className={`flex items-center gap-2 h-full border-b-2 transition cursor-pointer ${
+                    activitySubTab === 'calendar'
+                      ? 'border-violet-600 text-violet-700 font-extrabold'
+                      : 'border-transparent hover:text-gray-900'
+                  }`}
+                >
+                  <Calendar className="h-4 w-4" />
+                  <span>Thời Khóa Biểu & Lịch Hẹn 1-1</span>
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                {activitySubTab === 'feed' ? (
+                  <TeamsActivityFeed
+                    onNavigateToMeeting={(title) => handleStartInstantMeeting(title)}
+                    onNavigateToChannel={() => setActiveRail('teams')}
+                  />
+                ) : (
+                  <TeamsCalendarAppointments
+                    user={currentUser}
+                    directoryUsers={directoryUsers}
+                    classes={erpClasses}
+                    onJoinMeeting={(title, meetingUrl) => {
+                      const code = meetingUrl
+                        ? meetingUrl.replace(/^https?:\/\/.*\/room\//, '')
+                        : undefined;
+                      handleStartInstantMeeting(title, code);
+                    }}
+                  />
+                )}
+              </div>
             </div>
           )}
         </main>
       </div>
 
-      {/* MODAL: Đồng Bộ Team Từ ERP */}
+      {/* MODAL: ĐỒNG BỘ TEAM TỪ ERP ĐÀO TẠO (POST /api/v1/teams/sync) */}
       {showSyncModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl animate-in fade-in space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl space-y-4 animate-in fade-in">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-gray-900">Đồng Bộ Team Từ ERP Đào Tạo</h3>
-                <p className="text-xs text-gray-500">Khởi tạo nhóm lớp học phần và gán sinh viên tự động</p>
+                <p className="text-xs text-gray-500">Gọi API POST /api/v1/teams/sync lưu Database thực tế</p>
               </div>
               <button onClick={() => setShowSyncModal(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
+                ✕
               </button>
             </div>
 
+            {/* Error or Success Feedback */}
+            {syncError && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                <span>{syncError}</span>
+              </div>
+            )}
+            {syncSuccessMsg && (
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 flex items-center gap-2">
+                <span className="font-bold">✓</span>
+                <span>{syncSuccessMsg}</span>
+              </div>
+            )}
+
             <form onSubmit={handleSyncFromErp} className="space-y-4 text-xs">
-              <div>
-                <label className="font-semibold text-gray-700 block mb-1">Chọn Lớp Học Phần ERP</label>
-                <select
-                  value={selectedClassToSync}
-                  onChange={(e) => setSelectedClassToSync(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 p-2.5 outline-none focus:border-violet-500"
+              {/* Sync Type */}
+              <div className="flex rounded-xl bg-gray-100 p-1 font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setSyncType('CLASS')}
+                  className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
+                    syncType === 'CLASS' ? 'bg-white text-violet-700 shadow-xs' : 'text-gray-600'
+                  }`}
                 >
-                  {erpClasses.map((cls) => (
-                    <option key={cls.id} value={cls.id}>
-                      {cls.code} - {cls.course?.name || 'Lớp Học Phần'}
-                    </option>
-                  ))}
-                </select>
+                  Lớp Học Phần (classId)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSyncType('HOMEROOM')}
+                  className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
+                    syncType === 'HOMEROOM' ? 'bg-white text-violet-700 shadow-xs' : 'text-gray-600'
+                  }`}
+                >
+                  Lớp Sinh Hoạt (homeroomClassId)
+                </button>
               </div>
 
-              <div className="rounded-xl bg-violet-50 border border-violet-200 p-3 text-violet-900 space-y-1">
-                <p className="font-bold">Quy trình tự động hóa:</p>
+              {syncType === 'CLASS' ? (
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Chọn Lớp Học Phần ERP</label>
+                  <select
+                    value={selectedClassToSync}
+                    onChange={(e) => setSelectedClassToSync(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 p-2.5 outline-none focus:border-violet-500"
+                  >
+                    {erpClasses.map((cls) => (
+                      <option key={cls.id} value={cls.id}>
+                        {cls.code} - {cls.course?.name || 'Lớp Học Phần'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Chọn Lớp Sinh Hoạt ERP</label>
+                  <select
+                    value={selectedHomeroomToSync}
+                    onChange={(e) => setSelectedHomeroomToSync(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 p-2.5 outline-none focus:border-violet-500"
+                  >
+                    {erpHomerooms.map((hr) => (
+                      <option key={hr.id} value={hr.id}>
+                        {hr.code} - {hr.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="rounded-2xl bg-violet-50 border border-violet-200 p-3.5 text-violet-900 space-y-1">
+                <p className="font-bold">Quy trình tự động hóa của Backend:</p>
                 <ul className="text-[11px] list-disc list-inside space-y-0.5 text-violet-800">
-                  <li>Tự động gán Giảng viên / Cố vấn làm <strong>OWNER</strong>.</li>
-                  <li>Tự động gán toàn bộ sinh viên đã đăng ký làm <strong>MEMBER</strong>.</li>
-                  <li>Khởi tạo sẵn 2 kênh: <code>#General</code> và <code>#Q&A</code>.</li>
+                  <li>Tạo bản ghi <code>Team</code> thực sự trong PostgreSQL.</li>
+                  <li>Khởi tạo sẵn 2 kênh chuẩn: <code>#general</code> và <code>#q-and-a</code>.</li>
+                  <li>Tự động liên kết Giảng viên làm <strong>OWNER</strong> và Sinh viên làm <strong>MEMBER</strong>.</li>
                 </ul>
               </div>
 
@@ -609,14 +1009,14 @@ export default function TeamsTab({ user }: { user: any }) {
                 <button
                   type="button"
                   onClick={() => setShowSyncModal(false)}
-                  className="rounded-xl border border-gray-200 px-4 py-2 font-semibold text-gray-600 hover:bg-gray-50"
+                  className="rounded-xl border border-gray-200 px-4 py-2 font-semibold text-gray-600 hover:bg-gray-50 cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={syncing}
-                  className="rounded-xl bg-violet-600 px-5 py-2 font-bold text-white hover:bg-violet-700 shadow-xs cursor-pointer"
+                  className="rounded-xl bg-violet-600 px-5 py-2 font-bold text-white hover:bg-violet-700 disabled:opacity-50 transition cursor-pointer"
                 >
                   {syncing ? 'Đang Đồng Bộ...' : 'Bắt Đầu Đồng Bộ'}
                 </button>
@@ -626,23 +1026,27 @@ export default function TeamsTab({ user }: { user: any }) {
         </div>
       )}
 
-      {/* MODAL: Tạo Nhóm Tùy Chỉnh */}
+      {/* MODAL: TẠO NHÓM MỚI (CUSTOM TEAM) */}
       {showCustomTeamModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl animate-in fade-in space-y-4">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <h3 className="text-base font-bold text-gray-900">Tạo Nhóm Mới (Custom Team)</h3>
-              <button onClick={() => setShowCustomTeamModal(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
-              </button>
+              <button onClick={() => setShowCustomTeamModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
 
-            <form onSubmit={handleCreateCustomTeam} className="mt-4 space-y-4 text-xs">
+            {customTeamError && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">
+                {customTeamError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateCustomTeam} className="space-y-4 text-xs">
               <div>
-                <label className="font-semibold text-gray-700 block mb-1">Tên Nhóm</label>
+                <label className="font-semibold text-gray-700 block mb-1">Tên Nhóm *</label>
                 <input
                   type="text"
-                  placeholder="Ví dụ: CLB Tin Học & Lập Trình..."
+                  placeholder="Ví dụ: CLB Tin Học & Nghiên Cứu..."
                   value={customTeamName}
                   onChange={(e) => setCustomTeamName(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 p-2.5 outline-none focus:border-violet-500"
@@ -656,7 +1060,7 @@ export default function TeamsTab({ user }: { user: any }) {
                   rows={3}
                   value={customTeamDesc}
                   onChange={(e) => setCustomTeamDesc(e.target.value)}
-                  placeholder="Mô tả ngắn về hoạt động nhóm..."
+                  placeholder="Mô tả về hoạt động của nhóm..."
                   className="w-full rounded-xl border border-gray-200 p-2.5 outline-none focus:border-violet-500"
                 />
               </div>
@@ -671,9 +1075,10 @@ export default function TeamsTab({ user }: { user: any }) {
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-violet-600 px-5 py-2 font-bold text-white hover:bg-violet-700"
+                  disabled={creatingCustomTeam}
+                  className="rounded-xl bg-violet-600 px-5 py-2 font-bold text-white hover:bg-violet-700 disabled:opacity-50"
                 >
-                  Tạo Nhóm
+                  {creatingCustomTeam ? 'Đang Tạo...' : 'Tạo Nhóm'}
                 </button>
               </div>
             </form>
@@ -681,23 +1086,21 @@ export default function TeamsTab({ user }: { user: any }) {
         </div>
       )}
 
-      {/* MODAL: Tạo Kênh Mới */}
+      {/* MODAL: TẠO KÊNH MỚI */}
       {showCreateChannelModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl animate-in fade-in space-y-4">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <h3 className="text-base font-bold text-gray-900">Tạo Kênh Mới Trong Nhóm</h3>
-              <button onClick={() => setShowCreateChannelModal(false)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
-              </button>
+              <button onClick={() => setShowCreateChannelModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
 
-            <form onSubmit={handleCreateChannel} className="mt-4 space-y-4 text-xs">
+            <form onSubmit={handleCreateChannel} className="space-y-4 text-xs">
               <div>
-                <label className="font-semibold text-gray-700 block mb-1">Tên Hiển Thị Của Kênh</label>
+                <label className="font-semibold text-gray-700 block mb-1">Tên Hiển Thị Của Kênh *</label>
                 <input
                   type="text"
-                  placeholder="Ví dụ: 🔒 Nhóm 2 - Đề tài Quản lý Bệnh Viện..."
+                  placeholder="Ví dụ: 🔬 Thảo Luận Đề Tài 2..."
                   value={newChannelDisplayName}
                   onChange={(e) => setNewChannelDisplayName(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 p-2.5 outline-none focus:border-violet-500"
@@ -709,7 +1112,7 @@ export default function TeamsTab({ user }: { user: any }) {
                 <label className="font-semibold text-gray-700 block mb-1">Mã Định Danh Kênh (Slug)</label>
                 <input
                   type="text"
-                  placeholder="nhom-2-hospital (chữ thường, không dấu)"
+                  placeholder="nhom-2-research (chữ thường, không dấu)"
                   value={newChannelName}
                   onChange={(e) => setNewChannelName(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 p-2.5 outline-none font-mono"
@@ -724,7 +1127,7 @@ export default function TeamsTab({ user }: { user: any }) {
                   className="w-full rounded-xl border border-gray-200 p-2.5 outline-none"
                 >
                   <option value="PUBLIC">Công khai (Mọi thành viên nhóm đều thấy)</option>
-                  <option value="PRIVATE">Riêng tư (Chỉ thành viên được chỉ định/Nhóm đồ án LMS)</option>
+                  <option value="PRIVATE">Riêng tư (Chỉ thành viên được chỉ định)</option>
                 </select>
               </div>
 

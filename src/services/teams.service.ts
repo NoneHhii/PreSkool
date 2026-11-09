@@ -13,6 +13,22 @@ export interface TeamMember {
   avatarUrl?: string;
   email?: string;
   presence?: PresenceStatus;
+  studentCode?: string;
+  teacherCode?: string;
+}
+
+export interface DirectoryUser {
+  id: string;
+  fullName: string;
+  email?: string;
+  avatarUrl?: string;
+  role: string;
+  studentCode?: string;
+  teacherCode?: string;
+  department?: string;
+  presence?: PresenceStatus;
+  studentProfileId?: string;
+  teacherProfileId?: string;
 }
 
 export interface TeamChannel {
@@ -288,7 +304,38 @@ export const teamsService = {
     return api.post(`/v1/teams/${teamId}/channels`, data);
   },
 
-  // 2. Video Meetings
+  // 2. Video Meetings & LMS Virtual Classrooms
+  createVirtualClassroom: (
+    classId: string,
+    data: {
+      classId: string;
+      title: string;
+      platform: 'TEAMS' | 'ZOOM' | 'JITSI' | 'LIVEKIT';
+      meetingUrl: string;
+      roomPassword?: string | null;
+      startTime: string;
+      endTime?: string | null;
+      recordings?: any;
+    }
+  ) => {
+    return api.post(`/v1/lms/classes/${classId}/virtual-classrooms`, data);
+  },
+
+  getVirtualClassrooms: (classId: string) => {
+    return api.get(`/v1/lms/classes/${classId}/virtual-classrooms`);
+  },
+
+  updateRecordings: (
+    classroomId: string,
+    recordings: { title: string; url: string; duration?: string }[]
+  ) => {
+    return api.put(`/v1/lms/virtual-classrooms/${classroomId}/recordings`, { recordings });
+  },
+
+  getAssignmentGroups: (classId: string) => {
+    return api.get(`/v1/lms/classes/${classId}/assignment-groups`);
+  },
+
   scheduleMeeting: (data: {
     teamId?: string;
     channelId?: string;

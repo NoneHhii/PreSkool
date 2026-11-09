@@ -9,9 +9,15 @@ export interface RescheduleRequestData {
 }
 
 export interface RollCallData {
-  classId: string;
-  date: string;
-  attendanceRecords: {
+  classId?: string;
+  scheduleId?: string;
+  date?: string;
+  attendances?: {
+    studentId: string;
+    status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
+    notes?: string;
+  }[];
+  attendanceRecords?: {
     studentId: string;
     status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED';
     note?: string;
