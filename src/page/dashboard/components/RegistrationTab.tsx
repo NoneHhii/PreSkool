@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   registrationService,
   type RegistrationPeriodData,
 } from '../../../services/registration.service';
+import { academicService } from '../../../services/academic.service';
 import {
   Layers,
   Plus,
@@ -108,6 +109,41 @@ export default function RegistrationTab({ user }: { user: any }) {
   });
 
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Load real course classes from academic service
+  useEffect(() => {
+    const loadClasses = async () => {
+      try {
+        const res = await academicService.getClasses();
+        if (res.data && res.data.length > 0) {
+          const mapped = res.data.map((c) => {
+            const tName =
+              c.teacher?.user?.profile?.fullName ||
+              c.teacher?.profile?.fullName ||
+              c.teacher?.fullName ||
+              c.teacher?.user?.username ||
+              c.teacher?.username ||
+              'Chưa phân công';
+            return {
+              id: c.id,
+              code: c.code,
+              courseName: c.course?.name || c.code,
+              credits: c.course?.credits || 3,
+              teacherName: tName,
+              schedule: `Học kỳ ${c.semester} (${c.academicYear})`,
+              enrolledCount: c.students?.length || 0,
+              maxCapacity: 50,
+              isEnrolled: false,
+            };
+          });
+          setClassList(mapped);
+        }
+      } catch {
+        // keep fallback
+      }
+    };
+    loadClasses();
+  }, []);
 
   // Enroll / Unenroll handler
   const handleEnroll = async (classItem: any) => {
