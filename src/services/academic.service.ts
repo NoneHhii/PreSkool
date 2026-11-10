@@ -19,7 +19,7 @@ export interface HomeroomClass {
   advisorId?: string;
   major?: Major;
   advisor?: any;
-  students?: Student[];
+  students?: any[];
   _count?: {
     students: number;
   };
@@ -143,8 +143,26 @@ export const academicService = {
     const response = await api.post<{ message: string }>(`/v1/academic/classes/${classId}/assign-homeroom`, { homeroomClassId });
     return response.data;
   },
-  autoAssignClasses: async (data: { courseId: string; academicYear: string; semester: number; studentIds: string[]; numberOfClasses: number }) => {
+  autoAssignClasses: async (data: { courseId: string; academicYear: string; semester: number; studentIds: string[]; numberOfClasses: number; teacherId?: string }) => {
     const response = await api.post<{ message: string; data: any }>('/v1/academic/classes/auto-assign', data);
+    return response.data;
+  },
+  updateClassTeacher: async (classId: string, teacherId: string) => {
+    try {
+      const response = await api.put<{ message: string; data: Class }>(`/v1/academic/classes/${classId}/teacher`, { teacherId });
+      return response.data;
+    } catch {
+      try {
+        const response = await api.put<{ message: string; data: Class }>(`/v1/academic/classes/${classId}`, { teacherId });
+        return response.data;
+      } catch {
+        const response = await api.patch<{ message: string; data: Class }>(`/v1/academic/classes/${classId}`, { teacherId });
+        return response.data;
+      }
+    }
+  },
+  autoAssignTeachersToAllClasses: async () => {
+    const response = await api.post<{ message: string; data: any }>('/v1/academic/classes/auto-assign-teachers');
     return response.data;
   },
 
@@ -155,6 +173,24 @@ export const academicService = {
   },
   createHomeroom: async (data: { code: string; name: string; majorId: string; cohort: string; advisorId?: string }) => {
     const response = await api.post<{ message: string; data: HomeroomClass }>('/v1/academic/homerooms', data);
+    return response.data;
+  },
+  updateHomeroomAdvisor: async (homeroomId: string, advisorId: string) => {
+    try {
+      const response = await api.put<{ message: string; data: HomeroomClass }>(`/v1/academic/homerooms/${homeroomId}/advisor`, { advisorId });
+      return response.data;
+    } catch {
+      try {
+        const response = await api.put<{ message: string; data: HomeroomClass }>(`/v1/academic/homerooms/${homeroomId}`, { advisorId });
+        return response.data;
+      } catch {
+        const response = await api.patch<{ message: string; data: HomeroomClass }>(`/v1/academic/homerooms/${homeroomId}`, { advisorId });
+        return response.data;
+      }
+    }
+  },
+  autoAssignAdvisorsToAllHomerooms: async () => {
+    const response = await api.post<{ message: string; data: any }>('/v1/academic/homerooms/auto-assign-advisors');
     return response.data;
   },
   autoAssignHomerooms: async (data: { majorId: string; cohort: string; studentIds: string[]; numberOfClasses: number; prefix: string; suffix?: string }) => {
@@ -193,6 +229,17 @@ export const academicService = {
     const response = await api.post<{ message: string; data: Schedule }>('/v1/academic/schedule', data);
     return response.data;
   },
+  bulkCreateSchedule: async (data: {
+    classId: string;
+    startDate: string;
+    endDate: string;
+    daysOfWeek: number[];
+    shift: string;
+    room: string;
+  }) => {
+    const response = await api.post<{ message: string; count?: number }>('/v1/academic/schedule/bulk', data);
+    return response.data;
+  },
 
   // Attendance
   markAttendance: async (data: { scheduleId: string; studentId: string; status: 'PRESENT' | 'ABSENT' | 'EXCUSED' | 'LATE'; notes?: string }) => {
@@ -202,5 +249,45 @@ export const academicService = {
   getStudentAttendanceStats: async (studentId: string): Promise<AttendanceResponse> => {
     const response = await api.get<AttendanceResponse>(`/v1/academic/attendance/student/${studentId}`);
     return response.data;
+  },
+
+  // Curriculums
+  getCurriculums: async (params?: { majorId?: string }) => {
+    try {
+      const response = await api.get<{ data: Curriculum[] }>('/v1/academic/curriculums', { params });
+      return response.data;
+    } catch {
+      return { data: [] };
+    }
+  },
+  createCurriculum: async (data: { name: string; majorId: string; totalCredits?: number }) => {
+    const response = await api.post<{ message: string; data: Curriculum }>('/v1/academic/curriculums', data);
+    return response.data;
+  },
+  addCourseToCurriculum: async (curriculumId: string, data: { courseId: string; semesterNumber: number; isCompulsory?: boolean }) => {
+    const response = await api.post<{ message: string; data: any }>(`/v1/academic/curriculums/${curriculumId}/courses`, data);
+    return response.data;
+  },
+  removeCourseFromCurriculum: async (curriculumId: string, courseId: string) => {
+    const response = await api.delete<{ message: string }>(`/v1/academic/curriculums/${curriculumId}/courses/${courseId}`);
+    return response.data;
   }
 };
+
+export interface CurriculumCourseItem {
+  id?: string;
+  courseId: string;
+  course?: Course;
+  semesterNumber: number;
+  isCompulsory?: boolean;
+}
+
+export interface Curriculum {
+  id: string;
+  name: string;
+  majorId: string;
+  major?: Major;
+  totalCredits?: number;
+  courses?: CurriculumCourseItem[];
+}
+

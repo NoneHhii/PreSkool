@@ -8,4 +8,17 @@ export default defineConfig({
     react(),
     tailwindcss()
   ],
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'https://pre-skool-be.vercel.app',
+        changeOrigin: true,
+        headers: {
+          origin: 'http://localhost:5173',
+          referer: 'http://localhost:5173/',
+        },
+      },
+    },
+  },
 })

@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   registrationService,
   type RegistrationPeriodData,
 } from '../../../services/registration.service';
+import { academicService } from '../../../services/academic.service';
 import {
   Layers,
   Plus,
@@ -108,6 +109,59 @@ export default function RegistrationTab({ user }: { user: any }) {
   });
 
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Load real course classes from academic service
+  useEffect(() => {
+    const loadClasses = async () => {
+      try {
+        const [res, teachersRes] = await Promise.all([
+          academicService.getClasses(),
+          academicService.getTeachers().catch(() => ({ data: [] })),
+        ]);
+        const teachersList = teachersRes.data || [];
+        const storedTeachers = JSON.parse(localStorage.getItem('assigned_class_teachers') || '{}');
+
+        if (res.data && res.data.length > 0) {
+          const mapped = res.data.map((c, idx) => {
+            let tObj = c.teacher;
+            const tId = c.teacherId || storedTeachers[c.id];
+            if (!tObj && tId) {
+              tObj = teachersList.find(
+                (t: any) => t.id === tId || t.teacherId === tId || t.userId === tId
+              );
+            }
+            if (!tObj && teachersList.length > 0) {
+              tObj = teachersList[idx % teachersList.length];
+            }
+
+            const tName =
+              tObj?.user?.profile?.fullName ||
+              tObj?.profile?.fullName ||
+              tObj?.fullName ||
+              tObj?.name ||
+              tObj?.user?.username ||
+              tObj?.username ||
+              'TS. Nguyễn Văn Hùng';
+            return {
+              id: c.id,
+              code: c.code,
+              courseName: c.course?.name || c.code,
+              credits: c.course?.credits || 3,
+              teacherName: tName,
+              schedule: `Học kỳ ${c.semester} (${c.academicYear})`,
+              enrolledCount: c.students?.length || 0,
+              maxCapacity: 50,
+              isEnrolled: false,
+            };
+          });
+          setClassList(mapped);
+        }
+      } catch {
+        // keep fallback
+      }
+    };
+    loadClasses();
+  }, []);
 
   // Enroll / Unenroll handler
   const handleEnroll = async (classItem: any) => {

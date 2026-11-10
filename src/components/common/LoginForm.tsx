@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { InputField } from './InputField';
 // import { SocialLogin } from './SocialLogin';
 import { authService } from '../../services/auth.service';
+import { connectSocket } from '../../services/socket';
 
 export const LoginForm: React.FC = () => {
   const navigate = useNavigate();
@@ -22,13 +23,14 @@ export const LoginForm: React.FC = () => {
 
       if (response.data?.accessToken) {
         localStorage.setItem('token', response.data.accessToken);
+        connectSocket(response.data.accessToken);
         if (response.data.user) {
           localStorage.setItem('user', JSON.stringify(response.data.user));
           alert(`Login successful! Welcome ${response.data.user.role || 'User'}.`);
         } else {
           alert('Login successful!');
         }
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       }
     } catch (err: any) {
       console.error('Login error:', err);
@@ -64,8 +66,9 @@ export const LoginForm: React.FC = () => {
         )}
 
         <InputField
-          label="Email Address"
-          type="email"
+          label="Tài khoản (Email / Username / MSSV)"
+          type="text"
+          placeholder="admin, hung.nv, 26107002..."
           value={email}
           onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
         />
@@ -97,7 +100,7 @@ export const LoginForm: React.FC = () => {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-md bg-[#4e73df] py-2.5 text-xs font-semibold text-white transition hover:bg-[#3e63cf] shadow-sm disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center"
+          className="w-full rounded-md bg-[#4e73df] py-2.5 text-xs font-semibold text-white transition hover:bg-[#3e63cf] shadow-sm disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer"
         >
           {loading ? (
             <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -107,6 +110,43 @@ export const LoginForm: React.FC = () => {
           ) : null}
           {loading ? 'Signing In...' : 'Sign In'}
         </button>
+
+        {/* Demo Quick Fill */}
+        <div className="pt-3 border-t border-gray-100">
+          <p className="text-[11px] font-semibold text-gray-500 mb-2">Tài khoản mẫu để test nhanh:</p>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('admin');
+                setPassword('adminpassword123');
+              }}
+              className="rounded-md border border-gray-200 bg-gray-50/80 py-1.5 px-2 text-center text-[11px] font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition cursor-pointer"
+            >
+              Admin
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('hung.nv');
+                setPassword('Teacher@123');
+              }}
+              className="rounded-md border border-gray-200 bg-gray-50/80 py-1.5 px-2 text-center text-[11px] font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition cursor-pointer"
+            >
+              Giảng viên
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('26107002');
+                setPassword('05092008');
+              }}
+              className="rounded-md border border-gray-200 bg-gray-50/80 py-1.5 px-2 text-center text-[11px] font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition cursor-pointer"
+            >
+              Sinh viên
+            </button>
+          </div>
+        </div>
       </form>
 
       {/* Footer link */}
